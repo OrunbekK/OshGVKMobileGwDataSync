@@ -1,0 +1,6 @@
+@MobileGwDataSync.API_HostAddress = http://localhost:5171
+
+GET {{MobileGwDataSync.API_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
