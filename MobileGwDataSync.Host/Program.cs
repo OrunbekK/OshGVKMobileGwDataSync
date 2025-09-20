@@ -1,6 +1,10 @@
 using Microsoft.EntityFrameworkCore;
+using MobileGwDataSync.Core.Interfaces;
 using MobileGwDataSync.Core.Models.Configuration;
+using MobileGwDataSync.Core.Services;
 using MobileGwDataSync.Data.Context;
+using MobileGwDataSync.Data.SqlServer;
+using MobileGwDataSync.Integration.OneC;
 using Serilog;
 using Serilog.Events;
 
@@ -88,10 +92,9 @@ namespace MobileGwDataSync.Host
             // services.AddScoped<ISyncJobRepository, SyncJobRepository>();
             // services.AddScoped<ISyncRunRepository, SyncRunRepository>();
 
-            // TODO: Register core services
-            // services.AddScoped<ISyncService, SyncOrchestrator>();
-            // services.AddScoped<IDataSource, OneCHttpConnector>();
-            // services.AddScoped<IDataTarget, SqlServerDataTarget>();
+            services.AddScoped<ISyncService, SyncOrchestrator>();
+            services.AddScoped<IDataSource, OneCHttpConnector>();
+            services.AddScoped<IDataTarget, SqlServerDataTarget>();
 
             // TODO: Register monitoring services
             // services.AddSingleton<IMetricsService, MetricsService>();

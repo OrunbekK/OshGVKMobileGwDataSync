@@ -26,5 +26,6 @@
   <ItemGroup>
     <ProjectReference Include="..\MobileGwDataSync.Core\MobileGwDataSync.Core.csproj" />
     <ProjectReference Include="..\MobileGwDataSync.Data\MobileGwDataSync.Data.csproj" />
+    <ProjectReference Include="..\MobileGwDataSync.Integration\MobileGwDataSync.Integration.csproj" />
   </ItemGroup>
 </Project>
