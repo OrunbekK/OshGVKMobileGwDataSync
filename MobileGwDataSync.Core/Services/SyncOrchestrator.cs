@@ -71,7 +71,7 @@ namespace MobileGwDataSync.Core.Services
 
                     var parameters = new Dictionary<string, string>
                     {
-                        ["endpoint"] = "/subscribers"
+                        ["endpoint"] = "/gbill/hs/api/subscribers"  // Полный путь от корня
                     };
 
                     fetchedData = await _dataSource.FetchDataAsync(parameters, cancellationToken);

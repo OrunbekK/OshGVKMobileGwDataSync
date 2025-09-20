@@ -70,22 +70,28 @@ namespace MobileGwDataSync.Integration.OneC
             try
             {
                 // Определяем endpoint
-                var endpoint = parameters.GetValueOrDefault("endpoint", "/gbill/hs/api/subscribers");
+                var endpoint = parameters.GetValueOrDefault("endpoint", "/subscribers");
 
-                // Убираем начальный слеш если базовый URL уже содержит путь
-                if (_httpClient.BaseAddress != null &&
-                    !string.IsNullOrEmpty(_httpClient.BaseAddress.AbsolutePath) &&
-                    _httpClient.BaseAddress.AbsolutePath != "/" &&
-                    endpoint.StartsWith("/"))
-                {
-                    endpoint = endpoint.Substring(1);
-                }
+                // Детальное логирование URL
+                _logger.LogInformation("=== 1C HTTP Request Details ===");
+                _logger.LogInformation("Base URL: {BaseUrl}", _httpClient.BaseAddress);
+                _logger.LogInformation("Endpoint parameter: {Endpoint}", endpoint);
 
-                _logger.LogInformation("Fetching data from 1C endpoint: {Endpoint}", endpoint);
+                // Формируем полный URL
+                var fullUrl = new Uri(_httpClient.BaseAddress, endpoint).ToString();
+                _logger.LogInformation("Full URL to call: {FullUrl}", fullUrl);
+                _logger.LogInformation("Authorization: Basic (User: {Username})", _settings.Username);
+                _logger.LogInformation("===============================");
 
                 // Выполняем запрос с retry policy
                 var response = await _retryPolicy.ExecuteAsync(async () =>
-                    await _httpClient.GetAsync(endpoint, cancellationToken));
+                {
+                    _logger.LogDebug("Executing GET request to: {Endpoint}", endpoint);
+                    var resp = await _httpClient.GetAsync(endpoint, cancellationToken);
+                    _logger.LogDebug("Response Status: {Status}, ReasonPhrase: {Reason}",
+                        resp.StatusCode, resp.ReasonPhrase);
+                    return resp;
+                });
 
                 if (response.StatusCode == HttpStatusCode.Unauthorized)
                 {
