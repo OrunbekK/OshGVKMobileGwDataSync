@@ -35,7 +35,13 @@ namespace MobileGwDataSync.Integration.OneC
             _httpClient = httpClientFactory.CreateClient("OneC");
 
             // Настраиваем базовые параметры
-            _httpClient.BaseAddress = new Uri(_settings.BaseUrl);
+            var baseUrl = _settings.BaseUrl;
+            if (!baseUrl.EndsWith("/"))
+            {
+                baseUrl += "/";
+                _logger.LogWarning("BaseUrl didn't end with '/', automatically appended. New URL: {BaseUrl}", baseUrl);
+            }
+            _httpClient.BaseAddress = new Uri(baseUrl);
             _httpClient.Timeout = TimeSpan.FromSeconds(_settings.Timeout);
 
             // Добавляем Basic Authentication
@@ -77,8 +83,15 @@ namespace MobileGwDataSync.Integration.OneC
                 _logger.LogInformation("Base URL: {BaseUrl}", _httpClient.BaseAddress);
                 _logger.LogInformation("Endpoint parameter: {Endpoint}", endpoint);
 
+                // Проверка на null и сохранение в локальную переменную
+                var baseAddress = _httpClient.BaseAddress;
+                if (baseAddress == null)
+                {
+                    throw new DataSourceException("BaseAddress is not configured. Check OneC:BaseUrl in appsettings.json");
+                }
+
                 // Формируем полный URL
-                var fullUrl = new Uri(_httpClient.BaseAddress, endpoint).ToString();
+                var fullUrl = new Uri(baseAddress, endpoint).ToString();
                 _logger.LogInformation("Full URL to call: {FullUrl}", fullUrl);
                 _logger.LogInformation("Authorization: Basic (User: {Username})", _settings.Username);
                 _logger.LogInformation("===============================");
