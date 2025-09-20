@@ -41,4 +41,29 @@ namespace MobileGwDataSync.Integration.Models
         [JsonProperty("Balance")]
         public decimal Balance { get; set; }
     }
+
+    /// <summary>
+    /// Модель для TVP (используется с существующим OneCSubscriber)
+    /// </summary>
+    public class SubscriberTVP
+    {
+        public string Account { get; set; } = string.Empty;
+        public string Subscriber { get; set; } = string.Empty;
+        public string Address { get; set; } = string.Empty;
+        public decimal Balance { get; set; }
+    }
+
+    /// <summary>
+    /// Результат синхронизации
+    /// </summary>
+    public class SyncResult
+    {
+        public int ProcessedCount { get; set; }
+        public int InsertedCount { get; set; }
+        public int UpdatedCount { get; set; }
+        public int DeletedCount { get; set; }
+        public TimeSpan Duration { get; set; }
+        public bool Success { get; set; }
+        public string? ErrorMessage { get; set; }
+    }
 }
