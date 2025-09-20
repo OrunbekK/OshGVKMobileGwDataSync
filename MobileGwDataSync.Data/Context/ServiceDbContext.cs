@@ -141,7 +141,7 @@ namespace MobileGwDataSync.Data.Context
             {
                 entity.ToTable("job_locks");
                 entity.HasIndex(e => e.ExpiresAt);
-            })
+            });
         }
     }
 }
