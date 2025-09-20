@@ -2,7 +2,6 @@
   "profiles": {
     "MobileGwDataSync.Host": {
       "commandName": "Project",
-      "commandLineArgs": "--sync-now",
       "environmentVariables": {
         "DOTNET_ENVIRONMENT": "Development"
       },

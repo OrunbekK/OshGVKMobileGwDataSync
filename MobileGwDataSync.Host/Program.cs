@@ -7,6 +7,7 @@ using MobileGwDataSync.Data.Repositories;
 using MobileGwDataSync.Data.SqlServer;
 using MobileGwDataSync.Host.Jobs;
 using MobileGwDataSync.Host.Services;
+using MobileGwDataSync.Host.Services.HostedServices;
 using MobileGwDataSync.Integration.OneC;
 using Quartz;
 using Serilog;
@@ -131,7 +132,8 @@ namespace MobileGwDataSync.Host
             // TODO: Register notification services
             // services.AddScoped<INotificationService, NotificationService>();
 
-            // Configure Quartz.NET
+            /*
+            // Configure Quartz.NET static
             services.AddQuartz(q =>
             {
                 // Создаём идентификатор для задачи
@@ -146,9 +148,13 @@ namespace MobileGwDataSync.Host
                 q.AddTrigger(opts => opts
                     .ForJob(jobKey)
                     .WithIdentity("subscribers-sync-trigger")
-                    .WithCronSchedule("0 0 * * * ?") // Каждый час
+                    .WithCronSchedule("0 0 * * * ?")
                     .StartNow()
                     .WithDescription("Hourly sync of subscribers"));
+            });*/
+            services.AddQuartz(q =>
+            {
+                // Пустая конфигурация - задачи будут добавляться динамически
             });
 
             // Добавляем Quartz hosted service
@@ -157,6 +163,8 @@ namespace MobileGwDataSync.Host
                 q.WaitForJobsToComplete = true;
                 q.AwaitApplicationStarted = true;
             });
+
+            services.AddHostedService<DynamicJobSchedulerService>();
 
             // TODO: Add alternative hosted services
             // services.AddHostedService<SyncHostedService>();
@@ -184,35 +192,170 @@ namespace MobileGwDataSync.Host
             try
             {
                 var context = services.GetRequiredService<ServiceDbContext>();
-                await context.Database.MigrateAsync();
-                Log.Information("Database migration completed successfully");
 
-                // Проверяем, есть ли задачи в БД, если нет - создаём дефолтную
-                var hasJobs = await context.SyncJobs.AnyAsync();
-                if (!hasJobs)
+                /*// Пробуем применить миграции
+                try
                 {
-                    context.SyncJobs.Add(new Data.Entities.SyncJobEntity
+                    //await context.Database.EnsureDeletedAsync();
+                    //await context.Database.EnsureCreatedAsync();
+                    await context.Database.MigrateAsync();
+                    Log.Information("Database migration completed successfully");
+                }
+                catch (Exception migrationEx)
+                {
+                    Log.Warning("Migration failed: {Message}", migrationEx.Message);
+                    // Продолжаем работу - возможно БД уже создана
+                }*/
+
+                // Проверяем подключение к существующей БД
+                if (await context.Database.CanConnectAsync())
+                    Log.Information("Connected to existing database");
+                else
+                {
+                    // Создаём только если БД не существует
+                    await context.Database.EnsureCreatedAsync();
+                    Log.Information("Database created");
+                }
+
+                // Проверяем и создаём дефолтную задачу
+                try
+                {
+                    var existingJob = await context.SyncJobs
+                        .FirstOrDefaultAsync(j => j.Id == "subscribers-sync");
+
+                    if (existingJob == null)
                     {
-                        Id = "subscribers-sync",
-                        Name = "Синхронизация абонентов",
-                        JobType = "Subscribers",
-                        CronExpression = "0 0 * * * ?",
-                        IsEnabled = true,
-                        IsExclusive = true,
-                        Priority = 10,
-                        OneCEndpoint = "/subscribers",
-                        TargetTable = "TblRefsSubscribers",
-                        TargetProcedure = "USP_MA_MergeSubscribers",
-                        CreatedAt = DateTime.UtcNow
-                    });
-                    await context.SaveChangesAsync();
-                    Log.Information("Default sync job created");
+                        var newJob = new Data.Entities.SyncJobEntity
+                        {
+                            Id = "subscribers-sync",
+                            Name = "Синхронизация абонентов",
+                            JobType = "Subscribers",
+                            CronExpression = "0 */5 * * * ?",
+                            IsEnabled = true,
+                            IsExclusive = true,
+                            Priority = 10,
+                            OneCEndpoint = "subscribers",
+                            TargetTable = "TblRefsSubscribers",
+                            TargetProcedure = "USP_MA_MergeSubscribers",
+                            CreatedAt = DateTime.UtcNow
+                        };
+
+                        context.SyncJobs.Add(newJob);
+                        await context.SaveChangesAsync();
+                        Log.Information("Default sync job 'subscribers-sync' created");
+                    }
+                }
+                catch (Exception jobEx)
+                {
+                    Log.Warning("Failed to check/create default job: {Message}", jobEx.Message);
+                }
+
+                // Выводим все задания (продолжаем даже при ошибках)
+                try
+                {
+                    Log.Information("========================================");
+                    Log.Information("CONFIGURED SYNC JOBS:");
+                    Log.Information("========================================");
+
+                    var jobs = await context.SyncJobs.ToListAsync();
+
+                    foreach (var job in jobs)
+                    {
+                        Log.Information("Job: {Id}", job.Id);
+                        Log.Information("  Name: {Name}", job.Name);
+                        Log.Information("  Type: {Type}", job.JobType);
+                        Log.Information("  Cron: {Cron}", job.CronExpression);
+                        Log.Information("  Enabled: {Enabled}", job.IsEnabled);
+                        Log.Information("  Target: {Target}", job.TargetTable);
+                        Log.Information("  Endpoint: {Endpoint}", job.OneCEndpoint);
+
+                        try
+                        {
+                            var expression = new Quartz.CronExpression(job.CronExpression);
+                            var nextRun = expression.GetNextValidTimeAfter(DateTimeOffset.Now);
+                            if (nextRun.HasValue)
+                            {
+                                Log.Information("  Next Run: {NextRun}", nextRun.Value.LocalDateTime);
+                                Log.Information("  Time Until: {TimeUntil}", (nextRun.Value - DateTimeOffset.Now).ToString(@"hh\:mm\:ss"));
+                            }
+                        }
+                        catch (Exception cronEx)
+                        {
+                            Log.Error("  ERROR: Invalid Cron expression - {Error}", cronEx.Message);
+                        }
+                    }
+
+                    Log.Information("========================================");
+                    Log.Information("Total jobs configured: {Count}", jobs.Count);
+                    Log.Information("========================================");
+                }
+                catch (Exception listEx)
+                {
+                    Log.Warning("Failed to list jobs: {Message}", listEx.Message);
+                }
+
+                // Логируем статус Quartz
+                await LogQuartzStatus(host);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Database initialization had errors, but continuing");
+                // НЕ ВЫБРАСЫВАЕМ исключение - продолжаем работу
+                // throw; // УБИРАЕМ это!
+            }
+        }
+
+        private static async Task LogQuartzStatus(IHost host)
+        {
+            try
+            {
+                using var scope = host.Services.CreateScope();
+                var schedulerFactory = scope.ServiceProvider.GetService<ISchedulerFactory>();
+
+                if (schedulerFactory != null)
+                {
+                    var scheduler = await schedulerFactory.GetScheduler();
+
+                    Log.Information("========================================");
+                    Log.Information("QUARTZ SCHEDULER STATUS:");
+                    Log.Information("========================================");
+                    Log.Information("  Scheduler Name: {Name}", scheduler.SchedulerName);
+                    Log.Information("  Scheduler Started: {Started}", scheduler.IsStarted);
+                    Log.Information("  Scheduler Shutdown: {Shutdown}", scheduler.IsShutdown);
+                    Log.Information("  In Standby Mode: {Standby}", scheduler.InStandbyMode);
+
+                    // Получаем все задания
+                    var jobKeys = await scheduler.GetJobKeys(Quartz.Impl.Matchers.GroupMatcher<JobKey>.AnyGroup());
+                    Log.Information("  Registered Jobs: {Count}", jobKeys.Count);
+
+                    foreach (var jobKey in jobKeys)
+                    {
+                        var triggers = await scheduler.GetTriggersOfJob(jobKey);
+                        var jobDetail = await scheduler.GetJobDetail(jobKey);
+
+                        Log.Information("  Job: {JobKey}", jobKey);
+                        Log.Information("    Class: {Class}", jobDetail?.JobType.Name);
+                        Log.Information("    Triggers: {Count}", triggers.Count);
+
+                        foreach (var trigger in triggers)
+                        {
+                            Log.Information("    Trigger: {TriggerKey}", trigger.Key);
+                            Log.Information("      State: {State}", await scheduler.GetTriggerState(trigger.Key));
+                            Log.Information("      Next Fire: {NextFire}", trigger.GetNextFireTimeUtc()?.LocalDateTime);
+                            Log.Information("      Previous Fire: {PrevFire}", trigger.GetPreviousFireTimeUtc()?.LocalDateTime);
+
+                            if (trigger is Quartz.ICronTrigger cronTrigger)
+                            {
+                                Log.Information("      Cron Expression: {Cron}", cronTrigger.CronExpressionString);
+                            }
+                        }
+                    }
+                    Log.Information("========================================");
                 }
             }
             catch (Exception ex)
             {
-                Log.Error(ex, "An error occurred while initializing the database");
-                throw;
+                Log.Error(ex, "Failed to get Quartz status");
             }
         }
 
