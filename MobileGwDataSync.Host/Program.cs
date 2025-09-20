@@ -32,7 +32,15 @@ namespace MobileGwDataSync.Host
                 var host = CreateHostBuilder(args).Build();
 
                 // Run database migrations
-                await InitializeDatabaseAsync(host);
+                try
+                {
+                    await InitializeDatabaseAsync(host);
+                }
+                catch (Exception dbEx)
+                {
+                    Log.Error(dbEx, "Failed to initialize database, but service will continue");
+                    // Продолжаем работу даже при ошибке БД
+                }
 
                 if (args.Contains("--sync-now") || args.Contains("-s"))
                 {

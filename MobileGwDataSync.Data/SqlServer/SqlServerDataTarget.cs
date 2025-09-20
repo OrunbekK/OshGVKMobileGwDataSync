@@ -206,12 +206,26 @@ namespace MobileGwDataSync.Data.SqlServer
 
             _dataTable.Clear();
 
+            // Используем HashSet для отслеживания уже добавленных Account
+            var addedAccounts = new HashSet<string>();
+            var duplicateCount = 0;
+
             foreach (var row in data.Rows)
             {
+                var account = row.GetValueOrDefault("Account", string.Empty)?.ToString() ?? string.Empty;
+
+                // Пропускаем дубликаты
+                if (!string.IsNullOrEmpty(account) && !addedAccounts.Add(account))
+                {
+                    duplicateCount++;
+                    _logger.LogWarning("Skipping duplicate Account: {Account}", account);
+                    continue;
+                }
+
                 var dataRow = _dataTable.NewRow();
 
                 // Мапим поля с проверкой
-                dataRow["Account"] = row.GetValueOrDefault("Account", string.Empty);
+                dataRow["Account"] = account;
                 dataRow["Subscriber"] = row.GetValueOrDefault("Subscriber", string.Empty);  // FIO уже преобразовано в Subscriber
                 dataRow["Address"] = row.GetValueOrDefault("Address", string.Empty);
                 dataRow["Balance"] = Convert.ToDecimal(row.GetValueOrDefault("Balance", 0m));
@@ -219,7 +233,12 @@ namespace MobileGwDataSync.Data.SqlServer
                 _dataTable.Rows.Add(dataRow);
             }
 
-            _logger.LogDebug("Populated DataTable with {Count} rows", _dataTable.Rows.Count);
+            if (duplicateCount > 0)
+            {
+                _logger.LogWarning("Found and skipped {Count} duplicate Account entries", duplicateCount);
+            }
+
+            _logger.LogDebug("Populated DataTable with {Count} unique rows", _dataTable.Rows.Count);
         }
 
         /// <summary>
