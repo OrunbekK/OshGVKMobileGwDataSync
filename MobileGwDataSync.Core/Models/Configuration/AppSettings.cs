@@ -58,41 +58,4 @@ namespace MobileGwDataSync.Core.Models.Configuration
         Warning,
         Critical
     }
-
-    public class NotificationSettings
-    {
-        public EmailSettings Email { get; set; } = new();
-        public WebhookSettings Webhooks { get; set; } = new();
-    }
-
-    public class EmailSettings
-    {
-        public bool Enabled { get; set; }
-        public string SmtpServer { get; set; } = string.Empty;
-        public int Port { get; set; } = 587;
-        public bool UseSsl { get; set; } = true;
-        public string From { get; set; } = string.Empty;
-        public List<string> Recipients { get; set; } = new();
-        public string Username { get; set; } = string.Empty;
-        public string Password { get; set; } = string.Empty;
-    }
-
-    public class WebhookSettings
-    {
-        public SlackSettings Slack { get; set; } = new();
-        public TeamsSettings Teams { get; set; } = new();
-    }
-
-    public class SlackSettings
-    {
-        public bool Enabled { get; set; }
-        public string Url { get; set; } = string.Empty;
-        public string Channel { get; set; } = string.Empty;
-    }
-
-    public class TeamsSettings
-    {
-        public bool Enabled { get; set; }
-        public string Url { get; set; } = string.Empty;
-    }
 }
