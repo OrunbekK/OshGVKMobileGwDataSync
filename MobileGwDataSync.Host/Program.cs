@@ -6,6 +6,7 @@ using MobileGwDataSync.Data.Context;
 using MobileGwDataSync.Data.Repositories;
 using MobileGwDataSync.Data.SqlServer;
 using MobileGwDataSync.Host.Jobs;
+using MobileGwDataSync.Host.Services;
 using MobileGwDataSync.Integration.OneC;
 using Quartz;
 using Serilog;
@@ -32,6 +33,13 @@ namespace MobileGwDataSync.Host
 
                 // Run database migrations
                 await InitializeDatabaseAsync(host);
+
+                if (args.Contains("--sync-now") || args.Contains("-s"))
+                {
+                    Log.Information("Manual sync requested via command line");
+                    await RunManualSync(host);
+                    return 0;
+                }
 
                 await host.RunAsync();
                 return 0;
@@ -118,9 +126,6 @@ namespace MobileGwDataSync.Host
             // Configure Quartz.NET
             services.AddQuartz(q =>
             {
-                // UseMicrosoftDependencyInjectionJobFactory is now default, no need to call it
-                // q.UseMicrosoftDependencyInjectionJobFactory(); // REMOVED - obsolete
-
                 // Создаём идентификатор для задачи
                 var jobKey = new JobKey("subscribers-sync-job");
 
@@ -154,6 +159,12 @@ namespace MobileGwDataSync.Host
 
             // TODO: Add SQL Server health check
             // .AddSqlServer(appSettings.ConnectionStrings.SqlServer, name: "sqlserver");
+
+            // Визуализация для консольного режима
+            if (Environment.UserInteractive)
+            {
+                services.AddHostedService<ConsoleStatusService>();
+            }
         }
 
         private static async Task InitializeDatabaseAsync(IHost host)
@@ -193,6 +204,34 @@ namespace MobileGwDataSync.Host
             {
                 Log.Error(ex, "An error occurred while initializing the database");
                 throw;
+            }
+        }
+
+        private static async Task RunManualSync(IHost host)
+        {
+            using var scope = host.Services.CreateScope();
+            var syncService = scope.ServiceProvider.GetRequiredService<ISyncService>();
+
+            Log.Information("Starting manual sync...");
+
+            try
+            {
+                var result = await syncService.ExecuteSyncAsync("subscribers-sync");
+
+                if (result.Success)
+                {
+                    Log.Information("Manual sync completed successfully. Records: {Count}",
+                        result.RecordsProcessed);
+                }
+                else
+                {
+                    Log.Warning("Manual sync failed: {Errors}",
+                        string.Join(", ", result.Errors));
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Manual sync failed with exception");
             }
         }
     }
