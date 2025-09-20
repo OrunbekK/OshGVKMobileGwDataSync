@@ -1,4 +1,5 @@
-﻿using MobileGwDataSync.Data.Entities;
+﻿using Microsoft.EntityFrameworkCore;
+using MobileGwDataSync.Data.Entities;
 
 namespace MobileGwDataSync.Data.Context
 {

@@ -17,33 +17,11 @@ namespace MobileGwDataSync.Core.Models.Configuration
         public string SQLite { get; set; } = "Data Source=sync_service.db";
     }
 
-    public class SyncSettings
-    {
-        public int BatchSize { get; set; } = 20000;
-        public int MaxParallelBatches { get; set; } = 3;
-        public int TimeoutMinutes { get; set; } = 10;
-        public RetryPolicySettings RetryPolicy { get; set; } = new();
-    }
-
     public class RetryPolicySettings
     {
         public int MaxAttempts { get; set; } = 3;
         public int DelaySeconds { get; set; } = 30;
         public int MaxDelaySeconds { get; set; } = 300;
-    }
-
-    public class OneCSettings
-    {
-        public string BaseUrl { get; set; } = string.Empty;
-        public string Username { get; set; } = string.Empty;
-        public string Password { get; set; } = string.Empty;
-        public int Timeout { get; set; } = 300;
-    }
-
-    public class MonitoringSettings
-    {
-        public PrometheusSettings Prometheus { get; set; } = new();
-        public HealthCheckSettings HealthChecks { get; set; } = new();
     }
 
     public class PrometheusSettings
