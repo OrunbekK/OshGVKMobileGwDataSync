@@ -1,3 +1,9 @@
+using Microsoft.EntityFrameworkCore;
+using MobileGwDataSync.Core.Models.Configuration;
+using MobileGwDataSync.Data.Context;
+using Serilog;
+using Serilog.Events;
+
 namespace MobileGwDataSync.Host
 {
     public class Program
