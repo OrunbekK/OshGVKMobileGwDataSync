@@ -139,6 +139,7 @@ namespace MobileGwDataSync.Host
                     .ForJob(jobKey)
                     .WithIdentity("subscribers-sync-trigger")
                     .WithCronSchedule("0 0 * * * ?") // Каждый час
+                    .StartNow()
                     .WithDescription("Hourly sync of subscribers"));
             });
 

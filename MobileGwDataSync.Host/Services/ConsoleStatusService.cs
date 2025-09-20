@@ -1,4 +1,5 @@
-﻿using System.Diagnostics;
+﻿using Quartz;
+using System.Diagnostics;
 
 namespace MobileGwDataSync.Host.Services
 {
@@ -6,17 +7,20 @@ namespace MobileGwDataSync.Host.Services
     {
         private readonly IHostEnvironment _environment;
         private readonly ILogger<ConsoleStatusService> _logger;
+        private readonly ISchedulerFactory _schedulerFactory;
         private readonly Stopwatch _uptime = Stopwatch.StartNew();
         private DateTime _nextSyncTime;
         private int _syncCounter = 0;
 
         public ConsoleStatusService(
             IHostEnvironment environment,
-            ILogger<ConsoleStatusService> logger)
+            ILogger<ConsoleStatusService> logger,
+            ISchedulerFactory schedulerFactory)
         {
             _environment = environment;
             _logger = logger;
-            _nextSyncTime = DateTime.Now.AddHours(1).Date.AddHours(DateTime.Now.AddHours(1).Hour);
+            _schedulerFactory = schedulerFactory;
+            _nextSyncTime = DateTime.Now.AddMinutes(5); // По умолчанию
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -46,8 +50,24 @@ namespace MobileGwDataSync.Host.Services
             Console.WriteLine();
         }
 
-        private void UpdateStatus()
+        private async void UpdateStatus()
         {
+            // Получаем реальное время из Quartz
+            try
+            {
+                var scheduler = await _schedulerFactory.GetScheduler();
+                var triggerKey = new TriggerKey("subscribers-sync-trigger");
+                var trigger = await scheduler.GetTrigger(triggerKey);
+                if (trigger != null)
+                {
+                    var nextFire = trigger.GetNextFireTimeUtc();
+                    if (nextFire.HasValue)
+                    {
+                        _nextSyncTime = nextFire.Value.LocalDateTime;
+                    }
+                }
+            }
+            catch { /* Игнорируем ошибки */ }
             // Сохраняем позицию курсора
             var currentLine = 4;
             Console.SetCursorPosition(0, currentLine);
@@ -121,9 +141,3 @@ namespace MobileGwDataSync.Host.Services
         }
     }
 }
-
-// Добавить в Program.cs в метод ConfigureServices:
-// if (Environment.UserInteractive) // Только для консольного режима
-// {
-//     services.AddHostedService<ConsoleStatusService>();
-// }
