@@ -1,6 +1,6 @@
 ﻿namespace MobileGwDataSync.Core.Extensions
 {
-    internal class DateTimeExtensions
+    public class DateTimeExtensions
     {
     }
 }

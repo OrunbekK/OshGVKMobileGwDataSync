@@ -1,6 +1,6 @@
 ﻿namespace MobileGwDataSync.Monitoring.Alerts
 {
-    internal class AlertThrottler
+    public class AlertThrottler
     {
     }
 }

@@ -1,6 +1,6 @@
 ﻿namespace MobileGwDataSync.Core.Services
 {
-    internal class DataValidator
+    public class DataValidator
     {
     }
 }

@@ -1,6 +1,6 @@
 ﻿namespace MobileGwDataSync.Host.Services
 {
-    internal class WindowsServiceLifetime
+    public class WindowsServiceLifetime
     {
     }
 }

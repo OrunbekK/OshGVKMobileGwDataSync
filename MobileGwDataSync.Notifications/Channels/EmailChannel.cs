@@ -1,6 +1,6 @@
 ﻿namespace MobileGwDataSync.Notifications.Channels
 {
-    internal class EmailChannel
+    public class EmailChannel
     {
     }
 }

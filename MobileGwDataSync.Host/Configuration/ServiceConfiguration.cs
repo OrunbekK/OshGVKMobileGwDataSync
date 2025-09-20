@@ -1,6 +1,6 @@
 ﻿namespace MobileGwDataSync.Host.Configuration
 {
-    internal class ServiceConfiguration
+    public class ServiceConfiguration
     {
     }
 }

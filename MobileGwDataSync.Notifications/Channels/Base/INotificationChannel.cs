@@ -1,6 +1,6 @@
 ﻿namespace MobileGwDataSync.Notifications.Channels.Base
 {
-    internal class INotificationChannel
+    public class INotificationChannel
     {
     }
 }

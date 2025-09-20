@@ -1,6 +1,6 @@
 ﻿namespace MobileGwDataSync.Core.Interfaces
 {
-    internal class INotificationService
+    public class INotificationService
     {
     }
 }

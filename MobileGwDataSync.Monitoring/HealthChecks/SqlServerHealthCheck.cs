@@ -1,6 +1,6 @@
 ﻿namespace MobileGwDataSync.Monitoring.HealthChecks
 {
-    internal class SqlServerHealthCheck
+    public class SqlServerHealthCheck
     {
     }
 }

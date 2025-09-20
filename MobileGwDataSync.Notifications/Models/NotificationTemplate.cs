@@ -1,6 +1,6 @@
 ﻿namespace MobileGwDataSync.Notifications.Models
 {
-    internal class NotificationTemplate
+    public class NotificationTemplate
     {
     }
 }

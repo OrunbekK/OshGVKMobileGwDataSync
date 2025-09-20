@@ -1,6 +1,6 @@
 ﻿namespace MobileGwDataSync.Data.SqlServer
 {
-    internal class StoredProcedures
+    public class StoredProcedures
     {
     }
 }

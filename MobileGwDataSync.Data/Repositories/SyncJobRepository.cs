@@ -1,6 +1,6 @@
 ﻿namespace MobileGwDataSync.Data.Repositories
 {
-    internal class SyncJobRepository
+    public class SyncJobRepository
     {
     }
 }

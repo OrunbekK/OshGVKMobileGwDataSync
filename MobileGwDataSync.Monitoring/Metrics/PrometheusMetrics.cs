@@ -1,6 +1,6 @@
 ﻿namespace MobileGwDataSync.Monitoring.Metrics
 {
-    internal class PrometheusMetrics
+    public class PrometheusMetrics
     {
     }
 }

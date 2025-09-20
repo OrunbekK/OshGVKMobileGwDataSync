@@ -1,6 +1,6 @@
 ﻿namespace MobileGwDataSync.Core.Models.DTO
 {
-    internal class MetricDTO
+    public class MetricDTO
     {
     }
 }

@@ -1,6 +1,6 @@
 ﻿namespace MobileGwDataSync.Core.Exceptions
 {
-    internal class ValidationException
+    public class ValidationException
     {
     }
 }

@@ -1,6 +1,6 @@
 ﻿namespace MobileGwDataSync.Data.Repositories.Base
 {
-    internal class IRepository
+    public class IRepository
     {
     }
 }

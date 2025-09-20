@@ -1,6 +1,6 @@
 ﻿namespace MobileGwDataSync.Data.Context
 {
-    internal class BusinessDbContext
+    public class BusinessDbContext
     {
     }
 }

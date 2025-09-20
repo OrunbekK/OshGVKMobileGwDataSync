@@ -1,6 +1,6 @@
 ﻿namespace MobileGwDataSync.Core.Models.Configuration
 {
-    internal class MonitoringSettings
+    public class MonitoringSettings
     {
     }
 }

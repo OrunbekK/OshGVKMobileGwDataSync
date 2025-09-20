@@ -1,6 +1,6 @@
 ﻿namespace MobileGwDataSync.Data.SqlServer
 {
-    internal class TVPHelper
+    public class TVPHelper
     {
     }
 }

@@ -1,6 +1,6 @@
 ﻿namespace MobileGwDataSync.Integration.Models
 {
-    internal class OneCResponse
+    public class OneCResponse
     {
     }
 }

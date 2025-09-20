@@ -1,6 +1,6 @@
 ﻿namespace MobileGwDataSync.Core.Models.DTO
 {
-    internal class SyncStatusDTO
+    public class SyncStatusDTO
     {
     }
 }

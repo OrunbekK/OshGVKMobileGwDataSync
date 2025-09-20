@@ -1,6 +1,6 @@
 ﻿namespace MobileGwDataSync.Core.Services
 {
-    internal class BatchProcessor
+    public class BatchProcessor
     {
     }
 }

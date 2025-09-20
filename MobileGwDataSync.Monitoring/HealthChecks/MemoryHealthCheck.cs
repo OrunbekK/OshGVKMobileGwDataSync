@@ -1,6 +1,6 @@
 ﻿namespace MobileGwDataSync.Monitoring.HealthChecks
 {
-    internal class MemoryHealthCheck
+    public class MemoryHealthCheck
     {
     }
 }

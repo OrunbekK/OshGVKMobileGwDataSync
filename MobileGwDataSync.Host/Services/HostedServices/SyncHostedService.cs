@@ -1,6 +1,6 @@
 ﻿namespace MobileGwDataSync.Host.Services.HostedServices
 {
-    internal class SyncHostedService
+    public class SyncHostedService
     {
     }
 }

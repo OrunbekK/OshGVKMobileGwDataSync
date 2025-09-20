@@ -1,6 +1,6 @@
 ﻿namespace MobileGwDataSync.Core.Models.Configuration
 {
-    internal class NotificationSettings
+    public class NotificationSettings
     {
     }
 }

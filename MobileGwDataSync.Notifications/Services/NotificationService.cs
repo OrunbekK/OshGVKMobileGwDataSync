@@ -1,6 +1,6 @@
 ﻿namespace MobileGwDataSync.Notifications.Services
 {
-    internal class NotificationService
+    public class NotificationService
     {
     }
 }

@@ -1,6 +1,6 @@
 ﻿namespace MobileGwDataSync.Data.Repositories
 {
-    internal class SyncRunRepository
+    public class SyncRunRepository
     {
     }
 }

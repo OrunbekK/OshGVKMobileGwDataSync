@@ -1,6 +1,6 @@
 ﻿namespace MobileGwDataSync.Integration.OneC
 {
-    internal class OneCDataMapper
+    public class OneCDataMapper
     {
     }
 }

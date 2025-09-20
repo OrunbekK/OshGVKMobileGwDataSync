@@ -1,6 +1,6 @@
 ﻿namespace MobileGwDataSync.Monitoring.Alerts
 {
-    internal class AlertRule
+    public class AlertRule
     {
     }
 }

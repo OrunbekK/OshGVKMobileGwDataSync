@@ -1,6 +1,6 @@
 ﻿namespace MobileGwDataSync.Host.Jobs
 {
-    internal class CleanupJob
+    public class CleanupJob
     {
     }
 }
