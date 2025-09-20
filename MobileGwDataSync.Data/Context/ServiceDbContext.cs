@@ -94,13 +94,20 @@ namespace MobileGwDataSync.Data.Context
             modelBuilder.Entity<SyncJobEntity>().HasData(
                 new SyncJobEntity
                 {
-                    Id = "default-sync-job",
-                    Name = "Default 1C Sync Job",
-                    CronExpression = "0 0 * * * ?", // Every hour
+                    Id = "subscribers-sync",
+                    Name = "Синхронизация абонентов",
+                    JobType = "Subscribers",
+                    CronExpression = "0 0 * * * ?", // Каждый час
                     IsEnabled = true,
+                    IsExclusive = true,
+                    Priority = 10,
+                    OneCEndpoint = "/api/subscribers",
+                    TargetTable = "staging_subscribers",
+                    TargetProcedure = "sp_MergeSubscribers",
                     CreatedAt = DateTime.UtcNow
                 }
-            );
+                // Позже добавите здесь другие задачи
+);
 
             modelBuilder.Entity<AlertRuleEntity>().HasData(
                 new AlertRuleEntity
