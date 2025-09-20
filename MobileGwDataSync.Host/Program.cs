@@ -5,7 +5,9 @@ using MobileGwDataSync.Core.Services;
 using MobileGwDataSync.Data.Context;
 using MobileGwDataSync.Data.Repositories;
 using MobileGwDataSync.Data.SqlServer;
+using MobileGwDataSync.Host.Jobs;
 using MobileGwDataSync.Integration.OneC;
+using Quartz;
 using Serilog;
 using Serilog.Events;
 
@@ -56,7 +58,8 @@ namespace MobileGwDataSync.Host
                     config
                         .SetBasePath(Directory.GetCurrentDirectory())
                         .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
-                        .AddJsonFile($"appsettings.{context.HostingEnvironment.EnvironmentName}.json", optional: true, reloadOnChange: true)
+                        .AddJsonFile($"appsettings.{context.HostingEnvironment.EnvironmentName}.json",
+                            optional: true, reloadOnChange: true)
                         .AddEnvironmentVariables()
                         .AddCommandLine(args);
                 })
@@ -89,36 +92,15 @@ namespace MobileGwDataSync.Host
             services.AddDbContext<ServiceDbContext>(options =>
                 options.UseSqlite(appSettings.ConnectionStrings.SQLite));
 
-            // TODO: Register repositories
-            // services.AddScoped<ISyncJobRepository, SyncJobRepository>();
+            // Repositories
             services.AddScoped<ISyncRunRepository, SyncRunRepository>();
+            // TODO: Register job repository when implemented
+            // services.AddScoped<ISyncJobRepository, SyncJobRepository>();
 
+            // Core services
             services.AddScoped<ISyncService, SyncOrchestrator>();
             services.AddScoped<IDataSource, OneCHttpConnector>();
             services.AddScoped<IDataTarget, SqlServerDataTarget>();
-
-            // TODO: Register monitoring services
-            // services.AddSingleton<IMetricsService, MetricsService>();
-
-            // TODO: Register notification services
-            // services.AddScoped<INotificationService, NotificationService>();
-
-            // TODO: Add Quartz.NET for scheduling
-            // services.AddQuartz(q =>
-            // {
-            //     q.UseMicrosoftDependencyInjectionJobFactory();
-            // });
-            // services.AddQuartzHostedService(q => q.WaitForJobsToComplete = true);
-
-            // TODO: Add hosted services
-            // services.AddHostedService<SyncHostedService>();
-            // services.AddHostedService<MetricsExporterService>();
-
-            // Health checks
-            services.AddHealthChecks()
-                .AddDbContextCheck<ServiceDbContext>("sqlite");
-            // TODO: Add SQL Server health check
-            // .AddSqlServer(appSettings.ConnectionStrings.SqlServer, name: "sqlserver");
 
             // HTTP client for 1C
             services.AddHttpClient("OneC", client =>
@@ -126,6 +108,52 @@ namespace MobileGwDataSync.Host
                 client.BaseAddress = new Uri(appSettings.OneC.BaseUrl);
                 client.Timeout = TimeSpan.FromSeconds(appSettings.OneC.Timeout);
             });
+
+            // TODO: Register monitoring services
+            // services.AddSingleton<IMetricsService, MetricsService>();
+
+            // TODO: Register notification services
+            // services.AddScoped<INotificationService, NotificationService>();
+
+            // Configure Quartz.NET
+            services.AddQuartz(q =>
+            {
+                // UseMicrosoftDependencyInjectionJobFactory is now default, no need to call it
+                // q.UseMicrosoftDependencyInjectionJobFactory(); // REMOVED - obsolete
+
+                // Создаём идентификатор для задачи
+                var jobKey = new JobKey("subscribers-sync-job");
+
+                // Регистрируем задачу
+                q.AddJob<DataSyncJob>(opts => opts
+                    .WithIdentity(jobKey)
+                    .UsingJobData("JobId", "subscribers-sync"));
+
+                // Создаём триггер с расписанием (каждый час)
+                q.AddTrigger(opts => opts
+                    .ForJob(jobKey)
+                    .WithIdentity("subscribers-sync-trigger")
+                    .WithCronSchedule("0 0 * * * ?") // Каждый час
+                    .WithDescription("Hourly sync of subscribers"));
+            });
+
+            // Добавляем Quartz hosted service
+            services.AddQuartzHostedService(q =>
+            {
+                q.WaitForJobsToComplete = true;
+                q.AwaitApplicationStarted = true;
+            });
+
+            // TODO: Add alternative hosted services
+            // services.AddHostedService<SyncHostedService>();
+            // services.AddHostedService<MetricsExporterService>();
+
+            // Health checks
+            services.AddHealthChecks()
+                .AddDbContextCheck<ServiceDbContext>("sqlite");
+
+            // TODO: Add SQL Server health check
+            // .AddSqlServer(appSettings.ConnectionStrings.SqlServer, name: "sqlserver");
         }
 
         private static async Task InitializeDatabaseAsync(IHost host)
@@ -138,10 +166,32 @@ namespace MobileGwDataSync.Host
                 var context = services.GetRequiredService<ServiceDbContext>();
                 await context.Database.MigrateAsync();
                 Log.Information("Database migration completed successfully");
+
+                // Проверяем, есть ли задачи в БД, если нет - создаём дефолтную
+                var hasJobs = await context.SyncJobs.AnyAsync();
+                if (!hasJobs)
+                {
+                    context.SyncJobs.Add(new Data.Entities.SyncJobEntity
+                    {
+                        Id = "subscribers-sync",
+                        Name = "Синхронизация абонентов",
+                        JobType = "Subscribers",
+                        CronExpression = "0 0 * * * ?",
+                        IsEnabled = true,
+                        IsExclusive = true,
+                        Priority = 10,
+                        OneCEndpoint = "/subscribers",
+                        TargetTable = "TblRefsSubscribers",
+                        TargetProcedure = "USP_MA_MergeSubscribers",
+                        CreatedAt = DateTime.UtcNow
+                    });
+                    await context.SaveChangesAsync();
+                    Log.Information("Default sync job created");
+                }
             }
             catch (Exception ex)
             {
-                Log.Error(ex, "An error occurred while migrating the database");
+                Log.Error(ex, "An error occurred while initializing the database");
                 throw;
             }
         }
