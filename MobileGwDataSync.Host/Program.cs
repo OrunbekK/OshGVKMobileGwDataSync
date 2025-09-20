@@ -3,6 +3,7 @@ using MobileGwDataSync.Core.Interfaces;
 using MobileGwDataSync.Core.Models.Configuration;
 using MobileGwDataSync.Core.Services;
 using MobileGwDataSync.Data.Context;
+using MobileGwDataSync.Data.Repositories;
 using MobileGwDataSync.Data.SqlServer;
 using MobileGwDataSync.Integration.OneC;
 using Serilog;
@@ -90,7 +91,7 @@ namespace MobileGwDataSync.Host
 
             // TODO: Register repositories
             // services.AddScoped<ISyncJobRepository, SyncJobRepository>();
-            // services.AddScoped<ISyncRunRepository, SyncRunRepository>();
+            services.AddScoped<ISyncRunRepository, SyncRunRepository>();
 
             services.AddScoped<ISyncService, SyncOrchestrator>();
             services.AddScoped<IDataSource, OneCHttpConnector>();

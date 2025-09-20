@@ -4,10 +4,7 @@ using MobileGwDataSync.Core.Exceptions;
 using MobileGwDataSync.Core.Interfaces;
 using MobileGwDataSync.Core.Models.Domain;
 using MobileGwDataSync.Core.Models.DTO;
-using MobileGwDataSync.Data.Context;
-using MobileGwDataSync.Data.Entities;
 using System.Diagnostics;
-using Newtonsoft.Json;
 
 namespace MobileGwDataSync.Core.Services
 {
@@ -15,20 +12,20 @@ namespace MobileGwDataSync.Core.Services
     {
         private readonly IDataSource _dataSource;
         private readonly IDataTarget _dataTarget;
-        private readonly ServiceDbContext _dbContext;
+        private readonly ISyncRunRepository _repository;
         private readonly ILogger<SyncOrchestrator> _logger;
         private readonly IMetricsService? _metricsService;
 
         public SyncOrchestrator(
             IDataSource dataSource,
             IDataTarget dataTarget,
-            ServiceDbContext dbContext,
+            ISyncRunRepository repository,
             ILogger<SyncOrchestrator> logger,
             IMetricsService? metricsService = null)
         {
             _dataSource = dataSource;
             _dataTarget = dataTarget;
-            _dbContext = dbContext;
+            _repository = repository;
             _logger = logger;
             _metricsService = metricsService;
         }
@@ -36,16 +33,18 @@ namespace MobileGwDataSync.Core.Services
         public async Task<SyncResultDTO> ExecuteSyncAsync(string jobId, CancellationToken cancellationToken = default)
         {
             var stopwatch = Stopwatch.StartNew();
-            var runId = Guid.NewGuid();
-            SyncRunEntity? syncRun = null;
+            SyncRun? syncRun = null;
 
-            _logger.LogInformation("Starting sync for job {JobId}, RunId: {RunId}", jobId, runId);
+            _logger.LogInformation("Starting sync for job {JobId}", jobId);
             _metricsService?.RecordSyncStart(jobId);
 
             try
             {
                 // Создаем запись о запуске
-                syncRun = await CreateSyncRunAsync(jobId, runId, cancellationToken);
+                syncRun = await _repository.CreateRunAsync(jobId, cancellationToken);
+                var runId = syncRun.Id;
+
+                _logger.LogInformation("Created sync run with ID: {RunId}", runId);
 
                 // Шаг 1: Инициализация
                 await LogStepAsync(runId, StepNames.Initialize, async () =>
@@ -72,7 +71,7 @@ namespace MobileGwDataSync.Core.Services
 
                     var parameters = new Dictionary<string, string>
                     {
-                        ["endpoint"] = "/gbill/hs/api/subscribers"
+                        ["endpoint"] = "/subscribers"
                     };
 
                     fetchedData = await _dataSource.FetchDataAsync(parameters, cancellationToken);
@@ -92,6 +91,7 @@ namespace MobileGwDataSync.Core.Services
 
                 // Обновляем количество полученных записей
                 syncRun.RecordsFetched = fetchedData.TotalRows;
+                await _repository.UpdateRunAsync(syncRun, cancellationToken);
 
                 // Шаг 3: Валидация данных
                 await LogStepAsync(runId, StepNames.ValidateData, async () =>
@@ -142,11 +142,10 @@ namespace MobileGwDataSync.Core.Services
                 }, cancellationToken);
 
                 // Обновляем статус запуска
-                syncRun.Status = SyncStatus.Completed.ToString();
+                syncRun.Status = SyncStatus.Completed;
                 syncRun.RecordsProcessed = fetchedData.TotalRows;
                 syncRun.EndTime = DateTime.UtcNow;
-
-                await _dbContext.SaveChangesAsync(cancellationToken);
+                await _repository.UpdateRunAsync(syncRun, cancellationToken);
 
                 stopwatch.Stop();
 
@@ -178,9 +177,9 @@ namespace MobileGwDataSync.Core.Services
 
                 if (syncRun != null)
                 {
-                    syncRun.Status = SyncStatus.Cancelled.ToString();
+                    syncRun.Status = SyncStatus.Cancelled;
                     syncRun.EndTime = DateTime.UtcNow;
-                    await _dbContext.SaveChangesAsync(CancellationToken.None);
+                    await _repository.UpdateRunAsync(syncRun, CancellationToken.None);
                 }
 
                 // Финализируем target при отмене
@@ -194,10 +193,10 @@ namespace MobileGwDataSync.Core.Services
 
                 if (syncRun != null)
                 {
-                    syncRun.Status = SyncStatus.Failed.ToString();
+                    syncRun.Status = SyncStatus.Failed;
                     syncRun.EndTime = DateTime.UtcNow;
                     syncRun.ErrorMessage = ex.Message;
-                    await _dbContext.SaveChangesAsync(CancellationToken.None);
+                    await _repository.UpdateRunAsync(syncRun, CancellationToken.None);
                 }
 
                 // Финализируем target при ошибке
@@ -218,12 +217,12 @@ namespace MobileGwDataSync.Core.Services
 
         public async Task<SyncRun> GetSyncRunAsync(Guid runId, CancellationToken cancellationToken = default)
         {
-            var entity = await _dbContext.SyncRuns.FindAsync(new object[] { runId }, cancellationToken);
+            var run = await _repository.GetRunAsync(runId, cancellationToken);
 
-            if (entity == null)
+            if (run == null)
                 throw new SyncException($"Sync run {runId} not found");
 
-            return MapToSyncRun(entity);
+            return run;
         }
 
         public async Task<IEnumerable<SyncRun>> GetSyncHistoryAsync(
@@ -231,27 +230,21 @@ namespace MobileGwDataSync.Core.Services
             int limit = 100,
             CancellationToken cancellationToken = default)
         {
-            var runs = _dbContext.SyncRuns
-                .Where(r => r.JobId == jobId)
-                .OrderByDescending(r => r.StartTime)
-                .Take(limit)
-                .Select(r => MapToSyncRun(r));
-
-            return await Task.FromResult(runs);
+            return await _repository.GetRunHistoryAsync(jobId, limit, cancellationToken);
         }
 
         public async Task<bool> CancelSyncAsync(Guid runId, CancellationToken cancellationToken = default)
         {
-            var syncRun = await _dbContext.SyncRuns.FindAsync(new object[] { runId }, cancellationToken);
+            var syncRun = await _repository.GetRunAsync(runId, cancellationToken);
 
             if (syncRun == null)
                 return false;
 
-            if (syncRun.Status == SyncStatus.InProgress.ToString())
+            if (syncRun.Status == SyncStatus.InProgress)
             {
-                syncRun.Status = SyncStatus.Cancelled.ToString();
+                syncRun.Status = SyncStatus.Cancelled;
                 syncRun.EndTime = DateTime.UtcNow;
-                await _dbContext.SaveChangesAsync(cancellationToken);
+                await _repository.UpdateRunAsync(syncRun, cancellationToken);
 
                 _logger.LogInformation("Sync run {RunId} cancelled", runId);
                 return true;
@@ -260,100 +253,43 @@ namespace MobileGwDataSync.Core.Services
             return false;
         }
 
-        private async Task<SyncRunEntity> CreateSyncRunAsync(
-            string jobId,
-            Guid runId,
-            CancellationToken cancellationToken)
-        {
-            var syncRun = new SyncRunEntity
-            {
-                Id = runId,
-                JobId = jobId,
-                StartTime = DateTime.UtcNow,
-                Status = SyncStatus.InProgress.ToString(),
-                RecordsProcessed = 0,
-                RecordsFetched = 0,
-                Metadata = JsonConvert.SerializeObject(new
-                {
-                    Source = _dataSource.SourceName,
-                    Target = _dataTarget.TargetName,
-                    Timestamp = DateTime.UtcNow
-                })
-            };
-
-            _dbContext.SyncRuns.Add(syncRun);
-            await _dbContext.SaveChangesAsync(cancellationToken);
-
-            return syncRun;
-        }
-
         private async Task LogStepAsync(
             Guid runId,
             string stepName,
             Func<Task<string>> action,
             CancellationToken cancellationToken)
         {
-            var step = new SyncRunStepEntity
-            {
-                Id = Guid.NewGuid(),
-                RunId = runId,
-                StepName = stepName,
-                StartTime = DateTime.UtcNow,
-                Status = SyncStatus.InProgress.ToString()
-            };
-
-            _dbContext.SyncRunSteps.Add(step);
-            await _dbContext.SaveChangesAsync(cancellationToken);
-
+            var step = await _repository.CreateStepAsync(runId, stepName, cancellationToken);
             var stopwatch = Stopwatch.StartNew();
 
             try
             {
                 var result = await action();
 
-                step.Status = SyncStatus.Completed.ToString();
+                step.Status = SyncStatus.Completed;
                 step.Details = result;
                 step.EndTime = DateTime.UtcNow;
                 step.DurationMs = stopwatch.ElapsedMilliseconds;
+
+                await _repository.UpdateStepAsync(step, cancellationToken);
 
                 _logger.LogInformation("Step {StepName} completed in {Duration}ms: {Result}",
                     stepName, stopwatch.ElapsedMilliseconds, result);
             }
             catch (Exception ex)
             {
-                step.Status = SyncStatus.Failed.ToString();
+                step.Status = SyncStatus.Failed;
                 step.Details = ex.Message;
                 step.EndTime = DateTime.UtcNow;
                 step.DurationMs = stopwatch.ElapsedMilliseconds;
+
+                await _repository.UpdateStepAsync(step, CancellationToken.None);
 
                 _logger.LogError(ex, "Step {StepName} failed after {Duration}ms",
                     stepName, stopwatch.ElapsedMilliseconds);
 
                 throw;
             }
-            finally
-            {
-                await _dbContext.SaveChangesAsync(CancellationToken.None);
-            }
-        }
-
-        private SyncRun MapToSyncRun(SyncRunEntity entity)
-        {
-            return new SyncRun
-            {
-                Id = entity.Id,
-                JobId = entity.JobId,
-                StartTime = entity.StartTime,
-                EndTime = entity.EndTime,
-                Status = Enum.Parse<SyncStatus>(entity.Status),
-                RecordsProcessed = entity.RecordsProcessed,
-                RecordsFetched = entity.RecordsFetched,
-                ErrorMessage = entity.ErrorMessage,
-                Metadata = string.IsNullOrEmpty(entity.Metadata)
-                    ? new Dictionary<string, object>()
-                    : JsonConvert.DeserializeObject<Dictionary<string, object>>(entity.Metadata)
-                      ?? new Dictionary<string, object>()
-            };
         }
     }
 }
