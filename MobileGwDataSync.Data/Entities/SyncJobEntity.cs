@@ -12,10 +12,32 @@ namespace MobileGwDataSync.Data.Entities
         public string Name { get; set; } = string.Empty;
 
         [Required]
+        [MaxLength(50)]
+        public string JobType { get; set; } = "Subscribers";
+
+        [Required]
         [MaxLength(100)]
         public string CronExpression { get; set; } = string.Empty;
 
         public bool IsEnabled { get; set; } = true;
+
+        // Зависимости и блокировки
+        [MaxLength(100)]
+        public string? DependsOnJobId { get; set; }
+
+        public bool IsExclusive { get; set; }
+
+        public int Priority { get; set; } = 0;
+
+        // Конфигурация endpoint'ов
+        [MaxLength(500)]
+        public string OneCEndpoint { get; set; } = string.Empty;
+
+        [MaxLength(200)]
+        public string? TargetTable { get; set; }
+
+        [MaxLength(200)]
+        public string? TargetProcedure { get; set; }
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 

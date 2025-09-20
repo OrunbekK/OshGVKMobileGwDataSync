@@ -17,6 +17,8 @@ namespace MobileGwDataSync.Data.Context
         public DbSet<AlertHistoryEntity> AlertHistory { get; set; } = null!;
         public DbSet<PerformanceMetricEntity> PerformanceMetrics { get; set; } = null!;
 
+        public DbSet<JobLockEntity> JobLocks { get; set; } = null!;
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
@@ -126,6 +128,13 @@ namespace MobileGwDataSync.Data.Context
                     CreatedAt = DateTime.UtcNow
                 }
             );
+
+            // JobLock configuration
+            modelBuilder.Entity<JobLockEntity>(entity =>
+            {
+                entity.ToTable("job_locks");
+                entity.HasIndex(e => e.ExpiresAt);
+            })
         }
     }
 }
