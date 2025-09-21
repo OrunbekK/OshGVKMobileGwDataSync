@@ -7,6 +7,7 @@ using MobileGwDataSync.Core.Models.Configuration;
 using MobileGwDataSync.Core.Services;
 using MobileGwDataSync.Data.Context;
 using MobileGwDataSync.Data.Repositories;
+using MobileGwDataSync.Data.Services;
 using MobileGwDataSync.Data.SqlServer;
 using MobileGwDataSync.Integration.OneC;
 using MobileGwDataSync.Monitoring.Metrics;
@@ -112,6 +113,7 @@ namespace MobileGwDataSync.API
             builder.Services.AddScoped<IDataSource, OneCHttpConnector>();
             builder.Services.AddScoped<IDataTarget, SqlServerDataTarget>();
             builder.Services.AddScoped<ISyncRunRepository, SyncRunRepository>();
+            builder.Services.AddScoped<ISyncJobRepository, SyncJobRepository>();
             builder.Services.AddScoped<ISyncService, SyncOrchestrator>();
 
             // MetricsService registration based on configuration

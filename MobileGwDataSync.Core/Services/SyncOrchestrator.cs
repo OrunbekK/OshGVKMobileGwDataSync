@@ -13,6 +13,7 @@ namespace MobileGwDataSync.Core.Services
         private readonly IDataSource _dataSource;
         private readonly IDataTarget _dataTarget;
         private readonly ISyncRunRepository _repository;
+        private readonly ISyncJobRepository _jobRepository;
         private readonly ILogger<SyncOrchestrator> _logger;
         private readonly IMetricsService? _metricsService;
 
@@ -20,12 +21,14 @@ namespace MobileGwDataSync.Core.Services
             IDataSource dataSource,
             IDataTarget dataTarget,
             ISyncRunRepository repository,
+            ISyncJobRepository jobRepository,
             ILogger<SyncOrchestrator> logger,
             IMetricsService? metricsService = null)
         {
             _dataSource = dataSource;
             _dataTarget = dataTarget;
             _repository = repository;
+            _jobRepository = jobRepository;
             _logger = logger;
             _metricsService = metricsService;
         }
@@ -40,6 +43,23 @@ namespace MobileGwDataSync.Core.Services
 
             try
             {
+                // Получаем настройки задачи через интерфейс
+                var job = await _jobRepository.GetJobAsync(jobId, cancellationToken);
+
+                if (job == null)
+                {
+                    throw new SyncException($"Job {jobId} not found in database");
+                }
+
+                var oneCEndpoint = job.OneCEndpoint;
+
+                if (string.IsNullOrEmpty(oneCEndpoint))
+                {
+                    throw new SyncException($"OneCEndpoint not configured for job {jobId}");
+                }
+
+                _logger.LogInformation("Using endpoint from job configuration: {Endpoint}", oneCEndpoint);
+
                 // Создаем запись о запуске
                 syncRun = await _repository.CreateRunAsync(jobId, cancellationToken);
                 var runId = syncRun.Id;
@@ -67,11 +87,13 @@ namespace MobileGwDataSync.Core.Services
                 DataTableDTO? fetchedData = null;
                 await LogStepAsync(runId, StepNames.FetchData, async () =>
                 {
-                    _logger.LogInformation("Fetching data from {Source}...", _dataSource.SourceName);
+                    _logger.LogInformation("Fetching data from {Source} using endpoint: {Endpoint}",
+                       _dataSource.SourceName, oneCEndpoint);
 
+                    // Используем endpoint из настроек задачи
                     var parameters = new Dictionary<string, string>
                     {
-                        ["endpoint"] = "subscribers"  // Без слеша, т.к. BaseUrl уже содержит /gbill/hs/api/
+                        ["endpoint"] = oneCEndpoint
                     };
 
                     fetchedData = await _dataSource.FetchDataAsync(parameters, cancellationToken);
@@ -157,7 +179,6 @@ namespace MobileGwDataSync.Core.Services
                     stopwatch.Elapsed           // duration
                 );
 
-
                 _logger.LogInformation(
                     "Sync completed successfully. RunId: {RunId}, Duration: {Duration}s, Records: {Records}",
                     runId, stopwatch.Elapsed.TotalSeconds, fetchedData.TotalRows);
@@ -220,6 +241,50 @@ namespace MobileGwDataSync.Core.Services
             }
         }
 
+        // ... остальные методы без изменений ...
+
+        private async Task LogStepAsync(
+            Guid runId,
+            string stepName,
+            Func<Task<string>> action,
+            CancellationToken cancellationToken)
+        {
+            var step = await _repository.CreateStepAsync(runId, stepName, cancellationToken);
+            var stopwatch = Stopwatch.StartNew();
+
+            try
+            {
+                var result = await action();
+
+                step.Status = SyncStatus.Completed;
+                step.Details = result;
+                step.EndTime = DateTime.UtcNow;
+                step.DurationMs = stopwatch.ElapsedMilliseconds;
+
+                await _repository.UpdateStepAsync(step, cancellationToken);
+
+                // Записываем метрику шага
+                _metricsService?.RecordStepDuration(runId.ToString(), stepName, stopwatch.Elapsed);
+
+                _logger.LogInformation("Step {StepName} completed in {Duration}ms: {Result}",
+                    stepName, stopwatch.ElapsedMilliseconds, result);
+            }
+            catch (Exception ex)
+            {
+                step.Status = SyncStatus.Failed;
+                step.Details = ex.Message;
+                step.EndTime = DateTime.UtcNow;
+                step.DurationMs = stopwatch.ElapsedMilliseconds;
+
+                await _repository.UpdateStepAsync(step, CancellationToken.None);
+
+                _logger.LogError(ex, "Step {StepName} failed after {Duration}ms",
+                    stepName, stopwatch.ElapsedMilliseconds);
+
+                throw;
+            }
+        }
+
         public async Task<SyncRun> GetSyncRunAsync(Guid runId, CancellationToken cancellationToken = default)
         {
             var run = await _repository.GetRunAsync(runId, cancellationToken);
@@ -256,45 +321,6 @@ namespace MobileGwDataSync.Core.Services
             }
 
             return false;
-        }
-
-        private async Task LogStepAsync(
-            Guid runId,
-            string stepName,
-            Func<Task<string>> action,
-            CancellationToken cancellationToken)
-        {
-            var step = await _repository.CreateStepAsync(runId, stepName, cancellationToken);
-            var stopwatch = Stopwatch.StartNew();
-
-            try
-            {
-                var result = await action();
-
-                step.Status = SyncStatus.Completed;
-                step.Details = result;
-                step.EndTime = DateTime.UtcNow;
-                step.DurationMs = stopwatch.ElapsedMilliseconds;
-
-                await _repository.UpdateStepAsync(step, cancellationToken);
-
-                _logger.LogInformation("Step {StepName} completed in {Duration}ms: {Result}",
-                    stepName, stopwatch.ElapsedMilliseconds, result);
-            }
-            catch (Exception ex)
-            {
-                step.Status = SyncStatus.Failed;
-                step.Details = ex.Message;
-                step.EndTime = DateTime.UtcNow;
-                step.DurationMs = stopwatch.ElapsedMilliseconds;
-
-                await _repository.UpdateStepAsync(step, CancellationToken.None);
-
-                _logger.LogError(ex, "Step {StepName} failed after {Duration}ms",
-                    stepName, stopwatch.ElapsedMilliseconds);
-
-                throw;
-            }
         }
     }
 }

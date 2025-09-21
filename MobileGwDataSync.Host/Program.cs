@@ -4,6 +4,7 @@ using MobileGwDataSync.Core.Models.Configuration;
 using MobileGwDataSync.Core.Services;
 using MobileGwDataSync.Data.Context;
 using MobileGwDataSync.Data.Repositories;
+using MobileGwDataSync.Data.Services;
 using MobileGwDataSync.Data.SqlServer;
 using MobileGwDataSync.Host.Services;
 using MobileGwDataSync.Host.Services.HostedServices;
@@ -103,19 +104,28 @@ namespace MobileGwDataSync.Host
 
             // Repositories
             services.AddScoped<ISyncRunRepository, SyncRunRepository>();
-            // TODO: Register job repository when implemented
-            // services.AddScoped<ISyncJobRepository, SyncJobRepository>();
+            services.AddScoped<ISyncJobRepository, SyncJobRepository>();
 
             // Core services
-            services.AddScoped<ISyncService, SyncOrchestrator>();
             services.AddScoped<IDataSource, OneCHttpConnector>();
             services.AddScoped<IDataTarget, SqlServerDataTarget>();
-
+            services.AddScoped<ISyncService, SyncOrchestrator>();
+            
             // HTTP client for 1C
             services.AddHttpClient("OneC", client =>
             {
+                var baseUrl = appSettings.OneC.BaseUrl;
+
+                if (!baseUrl.EndsWith("/"))
+                    baseUrl += "/";
+
                 client.BaseAddress = new Uri(appSettings.OneC.BaseUrl);
                 client.Timeout = TimeSpan.FromSeconds(appSettings.OneC.Timeout);
+
+                var authValue = Convert.ToBase64String(
+                    System.Text.Encoding.UTF8.GetBytes($"{appSettings.OneC.Username}:{appSettings.OneC.Password}"));
+                
+                client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Basic", authValue);
             });
 
             // TODO: Register monitoring services
