@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using Asp.Versioning;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using MobileGwDataSync.API.Models.Responses.Jobs;
 using MobileGwDataSync.API.Models.Responses.Metrics;
@@ -9,7 +10,8 @@ using MobileGwDataSync.Data.Context;
 namespace MobileGwDataSync.API.Controllers
 {
     [ApiController]
-    [Route("api/[controller]")]
+    [ApiVersion("1.0")]
+    [Route("api/v{version:apiVersion}/[controller]")]
     public class SyncController : ControllerBase
     {
         private readonly ISyncService _syncService;

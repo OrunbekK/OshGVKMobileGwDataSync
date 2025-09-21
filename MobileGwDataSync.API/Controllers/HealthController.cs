@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using Asp.Versioning;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using MobileGwDataSync.API.Models.Responses.Health;
 using MobileGwDataSync.Data.Context;
@@ -7,7 +8,8 @@ using System.Diagnostics;
 namespace MobileGwDataSync.API.Controllers
 {
     [ApiController]
-    [Route("api/[controller]")]
+    [ApiVersion("1.0")]
+    [Route("api/v{version:apiVersion}/[controller]")]
     public class HealthController : ControllerBase
     {
         private readonly ServiceDbContext _serviceContext;

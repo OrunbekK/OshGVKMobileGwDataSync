@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using Asp.Versioning;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using MobileGwDataSync.API.Models.Responses.Metrics;
 using MobileGwDataSync.API.Models.Responses.Sync;
@@ -11,7 +12,8 @@ using System.Text;
 namespace MobileGwDataSync.API.Controllers
 {
     [ApiController]
-    [Route("api/[controller]")]
+    [ApiVersion("1.0")]
+    [Route("api/v{version:apiVersion}/[controller]")]
     public class MetricsController : ControllerBase
     {
         private readonly ServiceDbContext _context;
@@ -132,6 +134,75 @@ namespace MobileGwDataSync.API.Controllers
             };
 
             return Ok(metrics);
+        }
+
+        /// <summary>
+        /// Получить метрики в формате Prometheus
+        /// </summary>
+        [HttpGet("prometheus")]
+        [Produces("text/plain")]
+        public async Task<IActionResult> GetPrometheusMetrics()
+        {
+            try
+            {
+                // Собираем кастомные метрики из БД
+                var runs = await _context.SyncRuns
+                    .Where(r => r.StartTime >= DateTime.UtcNow.AddHours(-24))
+                    .GroupBy(r => new { r.JobId, r.Status })
+                    .Select(g => new
+                    {
+                        JobId = g.Key.JobId,
+                        Status = g.Key.Status,
+                        Count = g.Count(),
+                        TotalRecords = g.Sum(r => r.RecordsProcessed)
+                    })
+                    .ToListAsync();
+
+                var sb = new StringBuilder();
+
+                // Добавляем заголовок
+                sb.AppendLine("# HELP sync_runs_total Total number of sync runs by job and status");
+                sb.AppendLine("# TYPE sync_runs_total counter");
+
+                foreach (var run in runs)
+                {
+                    sb.AppendLine($"sync_runs_total{{job=\"{run.JobId}\",status=\"{run.Status}\"}} {run.Count}");
+                }
+
+                sb.AppendLine();
+                sb.AppendLine("# HELP sync_records_processed_total Total records processed by job");
+                sb.AppendLine("# TYPE sync_records_processed_total counter");
+
+                foreach (var run in runs)
+                {
+                    sb.AppendLine($"sync_records_processed_total{{job=\"{run.JobId}\"}} {run.TotalRecords}");
+                }
+
+                // Активные синхронизации
+                var activeCount = await _context.SyncRuns
+                    .CountAsync(r => r.Status == "InProgress");
+
+                sb.AppendLine();
+                sb.AppendLine("# HELP sync_jobs_active Number of currently active sync jobs");
+                sb.AppendLine("# TYPE sync_jobs_active gauge");
+                sb.AppendLine($"sync_jobs_active {activeCount}");
+
+                // Системные метрики
+                var process = Process.GetCurrentProcess();
+                var memoryMB = process.WorkingSet64 / (1024 * 1024);
+
+                sb.AppendLine();
+                sb.AppendLine("# HELP process_memory_mb Process memory usage in MB");
+                sb.AppendLine("# TYPE process_memory_mb gauge");
+                sb.AppendLine($"process_memory_mb {memoryMB}");
+
+                return Content(sb.ToString(), "text/plain; version=0.0.4");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to generate Prometheus metrics");
+                return StatusCode(500, "Failed to generate metrics");
+            }
         }
 
         private double CalculateThroughput(List<SyncRunEntity> runs)

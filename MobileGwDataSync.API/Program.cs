@@ -1,3 +1,5 @@
+using Asp.Versioning;
+using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi.Models;
 using MobileGwDataSync.API.Controllers;
@@ -14,7 +16,9 @@ using MobileGwDataSync.Monitoring.Metrics;
 using Prometheus;
 using Quartz;
 using Quartz.Impl;
+using System.IO.Compression;
 using System.Text.Json.Serialization;
+using System.Threading.RateLimiting;
 
 namespace MobileGwDataSync.API
 {
@@ -35,6 +39,80 @@ namespace MobileGwDataSync.API
                     options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
                     options.JsonSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
                 });
+
+            // API Versioning
+            builder.Services.AddApiVersioning(options =>
+            {
+                options.DefaultApiVersion = new ApiVersion(1, 0);
+                options.AssumeDefaultVersionWhenUnspecified = true;
+                options.ReportApiVersions = true;
+                options.ApiVersionReader = ApiVersionReader.Combine(
+                    new UrlSegmentApiVersionReader(),
+                    new HeaderApiVersionReader("X-Api-Version"),
+                    new QueryStringApiVersionReader("api-version")
+                );
+            }).AddApiExplorer(options =>
+            {
+                options.GroupNameFormat = "'v'VVV";
+                options.SubstituteApiVersionInUrl = true;
+            });
+
+            // Rate Limiting
+            builder.Services.AddRateLimiter(options =>
+            {
+                options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+                // Глобальный лимит
+                options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(
+                    httpContext => RateLimitPartition.GetFixedWindowLimiter(
+                        partitionKey: httpContext.User?.Identity?.Name ??
+                                     httpContext.Connection.RemoteIpAddress?.ToString() ??
+                                     "anonymous",
+                        factory: partition => new FixedWindowRateLimiterOptions
+                        {
+                            AutoReplenishment = true,
+                            PermitLimit = 100,
+                            QueueLimit = 0,
+                            Window = TimeSpan.FromMinutes(1)
+                        }));
+
+                // Специальный лимит для тяжелых операций
+                options.AddPolicy("HeavyOperation", httpContext =>
+                    RateLimitPartition.GetFixedWindowLimiter(
+                        partitionKey: httpContext.User?.Identity?.Name ??
+                                     httpContext.Connection.RemoteIpAddress?.ToString() ??
+                                     "anonymous",
+                        factory: partition => new FixedWindowRateLimiterOptions
+                        {
+                            AutoReplenishment = true,
+                            PermitLimit = 10,
+                            QueueLimit = 2,
+                            Window = TimeSpan.FromMinutes(1)
+                        }));
+            });
+
+            // Response Caching
+            builder.Services.AddResponseCaching();
+
+            // Response Compression
+            builder.Services.AddResponseCompression(options =>
+            {
+                options.EnableForHttps = true;
+                options.Providers.Add<BrotliCompressionProvider>();
+                options.Providers.Add<GzipCompressionProvider>();
+                options.MimeTypes = ResponseCompressionDefaults.MimeTypes.Concat(
+                    new[] { "application/json", "text/json", "text/plain", "application/xml" });
+            });
+
+            builder.Services.Configure<BrotliCompressionProviderOptions>(options =>
+            {
+                options.Level = CompressionLevel.Fastest;
+            });
+
+            builder.Services.Configure<GzipCompressionProviderOptions>(options =>
+            {
+                options.Level = CompressionLevel.SmallestSize;
+            });
 
             // Swagger/OpenAPI configuration
             builder.Services.AddEndpointsApiExplorer();

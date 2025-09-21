@@ -1,4 +1,6 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using Asp.Versioning;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using MobileGwDataSync.API.Models.Requests;
 using MobileGwDataSync.API.Models.Responses.Jobs;
@@ -10,7 +12,8 @@ using Quartz;
 namespace MobileGwDataSync.API.Controllers
 {
     [ApiController]
-    [Route("api/[controller]")]
+    [ApiVersion("1.0")]
+    [Route("api/v{version:apiVersion}/[controller]")]
     public class JobsController : ControllerBase
     {
         private readonly ServiceDbContext _context;
@@ -31,6 +34,7 @@ namespace MobileGwDataSync.API.Controllers
         /// Получить список всех задач синхронизации
         /// </summary>
         [HttpGet]
+        [ResponseCache(Duration = 30, Location = ResponseCacheLocation.Any)]
         public async Task<ActionResult<IEnumerable<SyncJobDTO>>> GetJobs()
         {
             var jobs = await _context.SyncJobs
@@ -324,6 +328,7 @@ namespace MobileGwDataSync.API.Controllers
         /// Запустить задачу немедленно
         /// </summary>
         [HttpPost("{id}/trigger")]
+        [EnableRateLimiting("HeavyOperation")] // Более строгий лимит для тяжелой операции
         public async Task<IActionResult> TriggerJob(string id)
         {
             var job = await _context.SyncJobs.FindAsync(id);
