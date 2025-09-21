@@ -35,44 +35,11 @@ namespace MobileGwDataSync.Integration.OneC
             _metricsService = metricsService;
             _httpClient = httpClientFactory.CreateClient("OneC");
 
-            // Создаем комбинированную политику: Retry + Circuit Breaker + Timeout
-            _resilientPolicy = Policy.WrapAsync(
-                // Circuit Breaker: открывается после 3 последовательных ошибок на 30 секунд
-                HttpPolicyExtensions
-                    .HandleTransientHttpError()
-                    .CircuitBreakerAsync(
-                        handledEventsAllowedBeforeBreaking: 3,
-                        durationOfBreak: TimeSpan.FromSeconds(30),
-                        onBreak: (outcome, duration) =>
-                        {
-                            _logger.LogWarning("Circuit breaker opened for {Duration}s", duration.TotalSeconds);
-                            _metricsService?.RecordSyncError("1C", "CircuitBreakerOpen");
-                        },
-                        onReset: () =>
-                        {
-                            _logger.LogInformation("Circuit breaker reset");
-                        }),
+            _logger.LogInformation("OneCHttpConnector initialized with BaseAddress: {BaseAddress}",
+                _httpClient.BaseAddress?.ToString() ?? "NOT SET");
 
-                // Retry: экспоненциальная задержка с jitter
-                HttpPolicyExtensions
-                    .HandleTransientHttpError()
-                    .WaitAndRetryAsync(
-                        retryCount: 3,
-                        sleepDurationProvider: retryAttempt =>
-                            TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)) +
-                            TimeSpan.FromMilliseconds(Random.Shared.Next(0, 1000)),
-                        onRetry: (outcome, timespan, retryCount, context) =>
-                        {
-                            _logger.LogWarning(
-                                "Retry {RetryCount} after {TimeSpan}s. Status: {StatusCode}",
-                                retryCount,
-                                timespan.TotalSeconds,
-                                outcome.Result?.StatusCode);
-                        }),
-
-                // Timeout: общий таймаут на операцию
-                Policy.TimeoutAsync<HttpResponseMessage>(TimeSpan.FromSeconds(_settings.Timeout))
-            );
+            // Настраиваем политики устойчивости
+            _resilientPolicy = CreateResiliencePolicy();
         }
 
         public async Task<DataTableDTO> FetchDataAsync(
@@ -80,10 +47,16 @@ namespace MobileGwDataSync.Integration.OneC
             CancellationToken cancellationToken = default)
         {
             var stopwatch = Stopwatch.StartNew();
-            var endpoint = parameters.GetValueOrDefault("endpoint", "/subscribers");
+            var endpoint = parameters.GetValueOrDefault("endpoint", "subscribers");
 
             try
             {
+                // Убираем начальный слеш если есть
+                if (endpoint.StartsWith("/"))
+                {
+                    endpoint = endpoint.Substring(1);
+                }
+
                 _logger.LogInformation("Fetching data from 1C endpoint: {Endpoint}", endpoint);
 
                 // Выполняем запрос с resilient policy
@@ -150,16 +123,72 @@ namespace MobileGwDataSync.Integration.OneC
             }
         }
 
+        private IAsyncPolicy<HttpResponseMessage> CreateResiliencePolicy()
+        {
+            return Policy.WrapAsync(
+                // Circuit Breaker
+                HttpPolicyExtensions
+                    .HandleTransientHttpError()
+                    .CircuitBreakerAsync(
+                        handledEventsAllowedBeforeBreaking: 3,
+                        durationOfBreak: TimeSpan.FromSeconds(30),
+                        onBreak: (outcome, duration) =>
+                        {
+                            _logger.LogWarning("Circuit breaker opened for {Duration}s", duration.TotalSeconds);
+                            _metricsService?.RecordSyncError("1C", "CircuitBreakerOpen");
+                        },
+                        onReset: () =>
+                        {
+                            _logger.LogInformation("Circuit breaker reset");
+                        }),
+
+                // Retry with exponential backoff
+                HttpPolicyExtensions
+                    .HandleTransientHttpError()
+                    .WaitAndRetryAsync(
+                        retryCount: 3,
+                        sleepDurationProvider: retryAttempt =>
+                            TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)) +
+                            TimeSpan.FromMilliseconds(Random.Shared.Next(0, 1000)),
+                        onRetry: (outcome, timespan, retryCount, context) =>
+                        {
+                            _logger.LogWarning(
+                                "Retry {RetryCount} after {TimeSpan}s. Status: {StatusCode}",
+                                retryCount,
+                                timespan.TotalSeconds,
+                                outcome.Result?.StatusCode);
+                        }),
+
+                // Timeout
+                Policy.TimeoutAsync<HttpResponseMessage>(TimeSpan.FromSeconds(_settings.Timeout))
+            );
+        }
+
+        // OneCHttpConnector.cs - исправленный метод TestConnectionAsync
+
         public async Task<bool> TestConnectionAsync(CancellationToken cancellationToken = default)
         {
             try
             {
-                var testEndpoint = "/subscribers?limit=1";
+                var testEndpoint = "subscribers?limit=1";
+
+                _logger.LogDebug("Testing connection. BaseAddress: {BaseAddress}, Endpoint: {Endpoint}",
+                    _httpClient.BaseAddress, testEndpoint);
+
+                // Для отладки - создаем полный URL вручную
+                if (_httpClient.BaseAddress != null)
+                {
+                    var fullUrl = new Uri(_httpClient.BaseAddress, testEndpoint);
+                    _logger.LogInformation("Expected full URL: {FullUrl}", fullUrl);
+                }
 
                 var response = await _resilientPolicy.ExecuteAsync(async (ct) =>
-                    await _httpClient.GetAsync(testEndpoint, ct),
-                    cancellationToken);
+                {
+                    // ВАЖНО: используем относительный путь!
+                    return await _httpClient.GetAsync(testEndpoint, ct);
+                }, cancellationToken);
 
+                _logger.LogInformation("Connection test result: {StatusCode}", response.StatusCode);
                 return response.IsSuccessStatusCode;
             }
             catch (Exception ex)

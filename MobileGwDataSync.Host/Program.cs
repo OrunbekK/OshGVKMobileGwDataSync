@@ -110,22 +110,27 @@ namespace MobileGwDataSync.Host
             services.AddScoped<IDataSource, OneCHttpConnector>();
             services.AddScoped<IDataTarget, SqlServerDataTarget>();
             services.AddScoped<ISyncService, SyncOrchestrator>();
-            
+
             // HTTP client for 1C
             services.AddHttpClient("OneC", client =>
             {
                 var baseUrl = appSettings.OneC.BaseUrl;
 
+                // Убеждаемся что заканчивается на /
                 if (!baseUrl.EndsWith("/"))
                     baseUrl += "/";
 
-                client.BaseAddress = new Uri(appSettings.OneC.BaseUrl);
+                client.BaseAddress = new Uri(baseUrl);
                 client.Timeout = TimeSpan.FromSeconds(appSettings.OneC.Timeout);
 
+                // Basic Auth
                 var authValue = Convert.ToBase64String(
                     System.Text.Encoding.UTF8.GetBytes($"{appSettings.OneC.Username}:{appSettings.OneC.Password}"));
-                
-                client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Basic", authValue);
+                client.DefaultRequestHeaders.Authorization =
+                    new System.Net.Http.Headers.AuthenticationHeaderValue("Basic", authValue);
+
+                // Логирование для отладки
+                Log.Information($"Configured OneC HttpClient with BaseAddress: {client.BaseAddress}");
             });
 
             // TODO: Register monitoring services
