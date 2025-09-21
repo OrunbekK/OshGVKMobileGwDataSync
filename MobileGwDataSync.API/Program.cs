@@ -407,9 +407,6 @@ namespace MobileGwDataSync.API
 
             builder.Services.AddSwaggerGen(options =>
             {
-                var provider = builder.Services.BuildServiceProvider()
-                    .GetService<IApiVersionDescriptionProvider>();
-
                 options.SwaggerDoc("v1", new OpenApiInfo
                 {
                     Title = "MobileGW Data Sync API",

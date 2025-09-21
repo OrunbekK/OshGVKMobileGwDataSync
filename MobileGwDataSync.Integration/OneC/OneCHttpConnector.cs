@@ -205,7 +205,6 @@ namespace MobileGwDataSync.Integration.OneC
             try
             {
                 var response = JsonConvert.DeserializeObject<OneCResponseWrapper>(json);
-
                 if (response == null || !response.Success)
                 {
                     throw new DataSourceException("1C returned unsuccessful response");
@@ -215,7 +214,10 @@ namespace MobileGwDataSync.Integration.OneC
                 {
                     Source = SourceName,
                     FetchedAt = DateTime.UtcNow,
-                    Columns = new List<string> { "Account", "Subscriber", "Address", "Balance" }
+                    Columns = new List<string> {
+                        "Account", "Subscriber", "Address", "Balance",
+                        "Type", "State", "ControllerId", "RouteId"
+            }
                 };
 
                 if (response.Subscribers != null)
@@ -227,7 +229,11 @@ namespace MobileGwDataSync.Integration.OneC
                             ["Account"] = subscriber.Account,
                             ["Subscriber"] = subscriber.FIO ?? string.Empty,
                             ["Address"] = subscriber.Address ?? string.Empty,
-                            ["Balance"] = subscriber.Balance
+                            ["Balance"] = subscriber.Balance,
+                            ["Type"] = subscriber.Type,
+                            ["State"] = subscriber.State ?? string.Empty,
+                            ["ControllerId"] = subscriber.ControllerId ?? string.Empty,
+                            ["RouteId"] = subscriber.RouteId ?? string.Empty
                         });
                     }
                 }
