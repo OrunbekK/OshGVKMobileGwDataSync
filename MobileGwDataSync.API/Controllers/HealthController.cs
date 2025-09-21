@@ -185,7 +185,7 @@ namespace MobileGwDataSync.API.Controllers
                 var client = _httpClientFactory.CreateClient("OneC");
                 client.Timeout = TimeSpan.FromSeconds(5);
 
-                var response = await client.GetAsync("/gbill/hs/api/subscribers?limit=1");
+                var response = await client.GetAsync("subscribers?limit=1");
 
                 if (response.IsSuccessStatusCode)
                 {
@@ -224,6 +224,47 @@ namespace MobileGwDataSync.API.Controllers
                     ResponseTime = stopwatch.ElapsedMilliseconds
                 };
             }
+        }
+
+        /// <summary>
+        /// Получить системный health check (использует встроенный HealthCheckService)
+        /// </summary>
+        [HttpGet("system")]
+        public async Task<IActionResult> GetSystemHealth(
+            [FromServices] IServiceProvider serviceProvider)
+        {
+            // Проверяем, зарегистрирован ли HealthCheckService
+            var healthCheckService = serviceProvider.GetService<Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckService>();
+
+            if (healthCheckService == null)
+            {
+                return Ok(new
+                {
+                    message = "HealthCheckService not registered. Using custom health checks only.",
+                    customHealthEndpoint = "/api/v1/health"
+                });
+            }
+
+            var result = await healthCheckService.CheckHealthAsync();
+
+            var response = new
+            {
+                status = result.Status.ToString(),
+                totalDuration = result.TotalDuration.TotalMilliseconds,
+                entries = result.Entries.Select(e => new
+                {
+                    name = e.Key,
+                    status = e.Value.Status.ToString(),
+                    duration = e.Value.Duration.TotalMilliseconds,
+                    description = e.Value.Description,
+                    tags = e.Value.Tags.ToList(),
+                    data = e.Value.Data
+                })
+            };
+
+            return result.Status == Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Healthy
+                ? Ok(response)
+                : StatusCode(503, response);
         }
 
         private ComponentHealthDTO CheckMemoryHealth()
