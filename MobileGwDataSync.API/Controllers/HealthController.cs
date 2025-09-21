@@ -2,6 +2,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using MobileGwDataSync.API.Models.Responses.Health;
+using MobileGwDataSync.Core.Models.Configuration;
 using MobileGwDataSync.Data.Context;
 using System.Diagnostics;
 
@@ -16,17 +17,20 @@ namespace MobileGwDataSync.API.Controllers
         private readonly BusinessDbContext _businessContext;
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly ILogger<HealthController> _logger;
+        private readonly AppSettings _appSettings;
 
         public HealthController(
             ServiceDbContext serviceContext,
             BusinessDbContext businessContext,
             IHttpClientFactory httpClientFactory,
-            ILogger<HealthController> logger)
+            ILogger<HealthController> logger,
+            AppSettings appSettings)
         {
             _serviceContext = serviceContext;
             _businessContext = businessContext;
             _httpClientFactory = httpClientFactory;
             _logger = logger;
+            _appSettings = appSettings;
         }
 
         /// <summary>
@@ -183,9 +187,16 @@ namespace MobileGwDataSync.API.Controllers
             try
             {
                 var client = _httpClientFactory.CreateClient("OneC");
-                client.Timeout = TimeSpan.FromSeconds(5);
 
-                var response = await client.GetAsync("subscribers?limit=1");
+                // Используем настройки из конфигурации
+                var healthEndpoint = _appSettings.OneC?.HealthCheckEndpoint ?? "health";
+                var timeout = _appSettings.OneC?.HealthCheckTimeout ?? 5;
+
+                client.Timeout = TimeSpan.FromSeconds(timeout);
+
+                _logger.LogDebug("Checking 1C health at endpoint: {Endpoint}", healthEndpoint);
+
+                var response = await client.GetAsync(healthEndpoint);
 
                 if (response.IsSuccessStatusCode)
                 {
@@ -193,7 +204,12 @@ namespace MobileGwDataSync.API.Controllers
                     {
                         Status = "Healthy",
                         Description = "1C API is accessible",
-                        ResponseTime = stopwatch.ElapsedMilliseconds
+                        ResponseTime = stopwatch.ElapsedMilliseconds,
+                        Metadata = new Dictionary<string, object>
+                        {
+                            ["Endpoint"] = healthEndpoint,
+                            ["StatusCode"] = (int)response.StatusCode
+                        }
                     };
                 }
                 else
@@ -202,12 +218,18 @@ namespace MobileGwDataSync.API.Controllers
                     {
                         Status = "Degraded",
                         Description = $"1C API returned status: {response.StatusCode}",
-                        ResponseTime = stopwatch.ElapsedMilliseconds
+                        ResponseTime = stopwatch.ElapsedMilliseconds,
+                        Metadata = new Dictionary<string, object>
+                        {
+                            ["Endpoint"] = healthEndpoint,
+                            ["StatusCode"] = (int)response.StatusCode
+                        }
                     };
                 }
             }
             catch (TaskCanceledException)
             {
+                _logger.LogWarning("1C health check timed out");
                 return new ComponentHealthDTO
                 {
                     Status = "Unhealthy",
@@ -217,6 +239,7 @@ namespace MobileGwDataSync.API.Controllers
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "1C health check failed");
                 return new ComponentHealthDTO
                 {
                     Status = "Unhealthy",

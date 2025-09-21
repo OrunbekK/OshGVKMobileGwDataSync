@@ -4,7 +4,6 @@ using Microsoft.AspNetCore.Mvc.ApiExplorer;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi.Models;
-using MobileGwDataSync.API.Controllers;
 using MobileGwDataSync.Core.Interfaces;
 using MobileGwDataSync.Core.Jobs;
 using MobileGwDataSync.Core.Models.Configuration;
@@ -18,6 +17,8 @@ using MobileGwDataSync.Monitoring.Metrics;
 using Prometheus;
 using Quartz;
 using Quartz.Impl;
+using Serilog;
+using Serilog.Events;
 using System.IO.Compression;
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
@@ -26,240 +27,323 @@ namespace MobileGwDataSync.API
 {
     public class Program
     {
-        public static void Main(string[] args)
+        public static async Task Main(string[] args)
         {
-            var builder = WebApplication.CreateBuilder(args);
+            // Configure Serilog early
+            Log.Logger = new LoggerConfiguration()
+                .ReadFrom.Configuration(
+                    new ConfigurationBuilder()
+                        .SetBasePath(Directory.GetCurrentDirectory())
+                        .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
+                        .AddJsonFile($"appsettings.{Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Production"}.json", optional: true)
+                        .AddEnvironmentVariables()
+                        .Build())
+                .CreateBootstrapLogger();
 
-            // Configuration
-            var appSettings = builder.Configuration.Get<AppSettings>() ?? new AppSettings();
-            builder.Services.AddSingleton(appSettings);
-
-            // Add services to the container
-            builder.Services.AddControllers()
-                .AddJsonOptions(options =>
-                {
-                    options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
-                    options.JsonSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
-                });
-
-            // API Versioning
-            builder.Services.AddApiVersioning(options =>
+            try
             {
-                options.DefaultApiVersion = new ApiVersion(1, 0);
-                options.AssumeDefaultVersionWhenUnspecified = true;
-                options.ReportApiVersions = true;
-                options.ApiVersionReader = ApiVersionReader.Combine(
-                    new UrlSegmentApiVersionReader(),
-                    new HeaderApiVersionReader("X-Api-Version"),
-                    new QueryStringApiVersionReader("api-version")
-                );
-            })
-            .AddMvc() // Important for MVC versioning
-            .AddApiExplorer(options =>
-            {
-                options.GroupNameFormat = "'v'VVV";
-                options.SubstituteApiVersionInUrl = true;
-            });
+                Log.Information("Starting MobileGW Data Sync API");
 
-            // Configure Swagger
-            ConfigureSwagger(builder);
+                var builder = WebApplication.CreateBuilder(args);
 
-            // Rate Limiting
-            builder.Services.AddRateLimiter(options =>
-            {
-                options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+                // Configure Serilog for the application
+                builder.Host.UseSerilog((context, services, configuration) => configuration
+                    .ReadFrom.Configuration(context.Configuration)
+                    .ReadFrom.Services(services)
+                    .Enrich.FromLogContext()
+                    .Enrich.WithMachineName()
+                    .Enrich.WithEnvironmentName()
+                    .Enrich.WithProperty("Application", context.HostingEnvironment.ApplicationName));
 
-                // Global limiter
-                options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(
-                    httpContext => RateLimitPartition.GetFixedWindowLimiter(
-                        partitionKey: httpContext.User?.Identity?.Name ??
-                                     httpContext.Connection.RemoteIpAddress?.ToString() ??
-                                     "anonymous",
-                        factory: partition => new FixedWindowRateLimiterOptions
-                        {
-                            AutoReplenishment = true,
-                            PermitLimit = 100,
-                            QueueLimit = 0,
-                            Window = TimeSpan.FromMinutes(1)
-                        }));
+                // Configuration
+                var appSettings = builder.Configuration.Get<AppSettings>() ?? new AppSettings();
+                builder.Services.AddSingleton(appSettings);
 
-                // Special limiter for heavy operations
-                options.AddPolicy("HeavyOperation", httpContext =>
-                    RateLimitPartition.GetFixedWindowLimiter(
-                        partitionKey: httpContext.User?.Identity?.Name ??
-                                     httpContext.Connection.RemoteIpAddress?.ToString() ??
-                                     "anonymous",
-                        factory: partition => new FixedWindowRateLimiterOptions
-                        {
-                            AutoReplenishment = true,
-                            PermitLimit = 10,
-                            QueueLimit = 2,
-                            Window = TimeSpan.FromMinutes(1)
-                        }));
-            });
-
-            // Response Caching
-            builder.Services.AddResponseCaching();
-
-            // Response Compression
-            builder.Services.AddResponseCompression(options =>
-            {
-                options.EnableForHttps = true;
-                options.Providers.Add<BrotliCompressionProvider>();
-                options.Providers.Add<GzipCompressionProvider>();
-                options.MimeTypes = ResponseCompressionDefaults.MimeTypes.Concat(
-                    new[] { "application/json", "text/json", "text/plain", "application/xml" });
-            });
-
-            builder.Services.Configure<BrotliCompressionProviderOptions>(options =>
-            {
-                options.Level = CompressionLevel.Fastest;
-            });
-
-            builder.Services.Configure<GzipCompressionProviderOptions>(options =>
-            {
-                options.Level = CompressionLevel.SmallestSize;
-            });
-
-            // Database contexts
-            builder.Services.AddDbContext<ServiceDbContext>(options =>
-                options.UseSqlite(appSettings.ConnectionStrings.SQLite));
-
-            builder.Services.AddDbContext<BusinessDbContext>(options =>
-                options.UseSqlServer(appSettings.ConnectionStrings.SqlServer));
-
-            // HTTP Clients
-            builder.Services.AddHttpClient("OneC", client =>
-            {
-                var baseUrl = appSettings.OneC.BaseUrl;
-                if (!baseUrl.EndsWith("/"))
-                    baseUrl += "/";
-
-                client.BaseAddress = new Uri(baseUrl);
-                client.Timeout = TimeSpan.FromSeconds(appSettings.OneC.Timeout);
-
-                // Basic Auth
-                var authValue = Convert.ToBase64String(
-                    System.Text.Encoding.UTF8.GetBytes($"{appSettings.OneC.Username}:{appSettings.OneC.Password}"));
-                client.DefaultRequestHeaders.Authorization =
-                    new System.Net.Http.Headers.AuthenticationHeaderValue("Basic", authValue);
-            });
-
-            // Register services
-            builder.Services.AddScoped<IDataSource, OneCHttpConnector>();
-            builder.Services.AddScoped<IDataTarget, SqlServerDataTarget>();
-            builder.Services.AddScoped<ISyncRunRepository, SyncRunRepository>();
-            builder.Services.AddScoped<ISyncJobRepository, SyncJobRepository>();
-            builder.Services.AddScoped<ISyncService, SyncOrchestrator>();
-
-            // MetricsService registration based on configuration
-            if (builder.Configuration.GetValue<bool>("Monitoring:Prometheus:Enabled", false))
-                builder.Services.AddSingleton<IMetricsService, MetricsService>();
-            else
-                builder.Services.AddSingleton<IMetricsService, NullMetricsService>();
-
-            // Quartz configuration
-            builder.Services.AddSingleton<ISchedulerFactory, StdSchedulerFactory>();
-            builder.Services.AddTransient<DataSyncJob>();
-
-            builder.Services.AddQuartz(q =>
-            {
-                q.UseSimpleTypeLoader();
-                q.UseInMemoryStore();
-                q.UseDefaultThreadPool(tp =>
-                {
-                    tp.MaxConcurrency = 10;
-                });
-            });
-
-            builder.Services.AddQuartzHostedService(options =>
-            {
-                options.WaitForJobsToComplete = true;
-            });
-
-            // Health checks
-            builder.Services.AddHealthChecks()
-                .AddDbContextCheck<ServiceDbContext>("sqlite", tags: new[] { "db", "sqlite" })
-                .AddDbContextCheck<BusinessDbContext>("sqlserver", tags: new[] { "db", "sql" })
-                .AddCheck("memory", () =>
-                {
-                    var allocated = GC.GetTotalMemory(forceFullCollection: false);
-                    var data = new Dictionary<string, object>
+                // Add services to the container
+                builder.Services.AddControllers()
+                    .AddJsonOptions(options =>
                     {
-                        ["AllocatedBytes"] = allocated,
-                        ["AllocatedMB"] = allocated / (1024 * 1024),
-                        ["Gen0Collections"] = GC.CollectionCount(0),
-                        ["Gen1Collections"] = GC.CollectionCount(1),
-                        ["Gen2Collections"] = GC.CollectionCount(2)
-                    };
+                        options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+                        options.JsonSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
+                    });
 
-                    var status = allocated < 500_000_000
-                        ? Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Healthy
-                        : allocated < 1_000_000_000
-                            ? Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Degraded
-                            : Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Unhealthy;
-
-                    return new Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult(
-                        status,
-                        $"Memory usage: {allocated / (1024 * 1024)} MB",
-                        data: data);
-                }, tags: new[] { "system" });
-
-            // CORS
-            builder.Services.AddCors(options =>
-            {
-                options.AddPolicy("AllowAll", policy =>
+                // API Versioning
+                builder.Services.AddApiVersioning(options =>
                 {
-                    policy.AllowAnyOrigin()
-                          .AllowAnyMethod()
-                          .AllowAnyHeader();
+                    options.DefaultApiVersion = new ApiVersion(1, 0);
+                    options.AssumeDefaultVersionWhenUnspecified = true;
+                    options.ReportApiVersions = true;
+                    options.ApiVersionReader = ApiVersionReader.Combine(
+                        new UrlSegmentApiVersionReader(),
+                        new HeaderApiVersionReader("X-Api-Version"),
+                        new QueryStringApiVersionReader("api-version")
+                    );
+                })
+                .AddMvc()
+                .AddApiExplorer(options =>
+                {
+                    options.GroupNameFormat = "'v'VVV";
+                    options.SubstituteApiVersionInUrl = true;
                 });
 
-                options.AddPolicy("Production", policy =>
+                // Configure Swagger
+                ConfigureSwagger(builder);
+
+                // Rate Limiting
+                builder.Services.AddRateLimiter(options =>
                 {
-                    //policy.WithOrigins("http://localhost:3000", "https://yourdomain.com")
-                    //      .AllowAnyMethod()
-                    //      .AllowAnyHeader()
-                    //      .AllowCredentials();
+                    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+                    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(
+                        httpContext => RateLimitPartition.GetFixedWindowLimiter(
+                            partitionKey: httpContext.User?.Identity?.Name ??
+                                         httpContext.Connection.RemoteIpAddress?.ToString() ??
+                                         "anonymous",
+                            factory: partition => new FixedWindowRateLimiterOptions
+                            {
+                                AutoReplenishment = true,
+                                PermitLimit = 100,
+                                QueueLimit = 0,
+                                Window = TimeSpan.FromMinutes(1)
+                            }));
+
+                    options.AddPolicy("HeavyOperation", httpContext =>
+                        RateLimitPartition.GetFixedWindowLimiter(
+                            partitionKey: httpContext.User?.Identity?.Name ??
+                                         httpContext.Connection.RemoteIpAddress?.ToString() ??
+                                         "anonymous",
+                            factory: partition => new FixedWindowRateLimiterOptions
+                            {
+                                AutoReplenishment = true,
+                                PermitLimit = 10,
+                                QueueLimit = 2,
+                                Window = TimeSpan.FromMinutes(1)
+                            }));
                 });
-            });
 
-            var app = builder.Build();
+                // Response Caching
+                builder.Services.AddResponseCaching();
 
-            // Apply migrations on startup
-            using (var scope = app.Services.CreateScope())
-            {
-                var serviceDbContext = scope.ServiceProvider.GetRequiredService<ServiceDbContext>();
-                try
+                // Response Compression
+                builder.Services.AddResponseCompression(options =>
                 {
-                    serviceDbContext.Database.Migrate();
-                    Console.WriteLine("SQLite database migrations applied successfully.");
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Error applying migrations: {ex.Message}");
-                }
+                    options.EnableForHttps = true;
+                    options.Providers.Add<BrotliCompressionProvider>();
+                    options.Providers.Add<GzipCompressionProvider>();
+                    options.MimeTypes = ResponseCompressionDefaults.MimeTypes.Concat(
+                        new[] { "application/json", "text/json", "text/plain", "application/xml" });
+                });
 
-                var businessDbContext = scope.ServiceProvider.GetRequiredService<BusinessDbContext>();
-                try
+                builder.Services.Configure<BrotliCompressionProviderOptions>(options =>
                 {
-                    if (businessDbContext.Database.CanConnect())
+                    options.Level = CompressionLevel.Fastest;
+                });
+
+                builder.Services.Configure<GzipCompressionProviderOptions>(options =>
+                {
+                    options.Level = CompressionLevel.SmallestSize;
+                });
+
+                // Database contexts
+                builder.Services.AddDbContext<ServiceDbContext>(options =>
+                    options.UseSqlite(appSettings.ConnectionStrings.SQLite));
+
+                builder.Services.AddDbContext<BusinessDbContext>(options =>
+                    options.UseSqlServer(appSettings.ConnectionStrings.SqlServer));
+
+                // HTTP Clients
+                builder.Services.AddHttpClient("OneC", client =>
+                {
+                    var baseUrl = appSettings.OneC.BaseUrl;
+                    if (!baseUrl.EndsWith("/"))
+                        baseUrl += "/";
+
+                    client.BaseAddress = new Uri(baseUrl);
+                    client.Timeout = TimeSpan.FromSeconds(appSettings.OneC.Timeout);
+
+                    var authValue = Convert.ToBase64String(
+                        System.Text.Encoding.UTF8.GetBytes($"{appSettings.OneC.Username}:{appSettings.OneC.Password}"));
+                    client.DefaultRequestHeaders.Authorization =
+                        new System.Net.Http.Headers.AuthenticationHeaderValue("Basic", authValue);
+                });
+
+                // Register services
+                builder.Services.AddScoped<IDataSource, OneCHttpConnector>();
+                builder.Services.AddScoped<IDataTarget, SqlServerDataTarget>();
+                builder.Services.AddScoped<ISyncRunRepository, SyncRunRepository>();
+                builder.Services.AddScoped<ISyncJobRepository, SyncJobRepository>();
+                builder.Services.AddScoped<ISyncService, SyncOrchestrator>();
+
+                // MetricsService registration
+                if (builder.Configuration.GetValue<bool>("Monitoring:Prometheus:Enabled", false))
+                    builder.Services.AddSingleton<IMetricsService, MetricsService>();
+                else
+                    builder.Services.AddSingleton<IMetricsService, NullMetricsService>();
+
+                // Quartz configuration
+                builder.Services.AddSingleton<ISchedulerFactory, StdSchedulerFactory>();
+                builder.Services.AddTransient<DataSyncJob>();
+
+                builder.Services.AddQuartz(q =>
+                {
+                    q.UseSimpleTypeLoader();
+                    q.UseInMemoryStore();
+                    q.UseDefaultThreadPool(tp =>
                     {
-                        Console.WriteLine("SQL Server connection successful.");
-                    }
-                }
-                catch (Exception ex)
+                        tp.MaxConcurrency = 10;
+                    });
+                });
+
+                builder.Services.AddQuartzHostedService(options =>
                 {
-                    Console.WriteLine($"SQL Server connection failed: {ex.Message}");
-                }
+                    options.WaitForJobsToComplete = true;
+                });
+
+                // Health checks
+                builder.Services.AddHealthChecks()
+                    .AddDbContextCheck<ServiceDbContext>("sqlite", tags: new[] { "db", "sqlite" })
+                    .AddDbContextCheck<BusinessDbContext>("sqlserver", tags: new[] { "db", "sql" })
+                    .AddCheck("memory", () =>
+                    {
+                        var allocated = GC.GetTotalMemory(forceFullCollection: false);
+                        var data = new Dictionary<string, object>
+                        {
+                            ["AllocatedBytes"] = allocated,
+                            ["AllocatedMB"] = allocated / (1024 * 1024),
+                            ["Gen0Collections"] = GC.CollectionCount(0),
+                            ["Gen1Collections"] = GC.CollectionCount(1),
+                            ["Gen2Collections"] = GC.CollectionCount(2)
+                        };
+
+                        var status = allocated < 500_000_000
+                            ? Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Healthy
+                            : allocated < 1_000_000_000
+                                ? Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Degraded
+                                : Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Unhealthy;
+
+                        return new Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult(
+                            status,
+                            $"Memory usage: {allocated / (1024 * 1024)} MB",
+                            data: data);
+                    }, tags: new[] { "system" });
+
+                // CORS
+                builder.Services.AddCors(options =>
+                {
+                    options.AddPolicy("AllowAll", policy =>
+                    {
+                        policy.AllowAnyOrigin()
+                              .AllowAnyMethod()
+                              .AllowAnyHeader();
+                    });
+
+                    options.AddPolicy("Production", policy =>
+                    {
+                        policy.WithOrigins("http://localhost:3000", "https://yourdomain.com")
+                              .AllowAnyMethod()
+                              .AllowAnyHeader()
+                              .AllowCredentials();
+                    });
+                });
+
+                var app = builder.Build();
+
+                // Apply migrations on startup
+                await ApplyMigrationsAsync(app);
+
+                // Configure middleware pipeline
+                ConfigureMiddleware(app);
+
+                // Configure endpoints
+                ConfigureEndpoints(app);
+
+                // Initialize Quartz jobs
+                _ = InitializeQuartzJobsAsync(app);
+
+                // Log startup information
+                Log.Information("MobileGW Data Sync API started successfully");
+                Log.Information("Environment: {Environment}", app.Environment.EnvironmentName);
+                Log.Information("URLs: {Urls}", string.Join(", ", app.Urls));
+
+                app.Run();
+            }
+            catch (Exception ex)
+            {
+                Log.Fatal(ex, "API terminated unexpectedly");
+                throw;
+            }
+            finally
+            {
+                Log.Information("Shutting down API");
+                Log.CloseAndFlush();
+            }
+        }
+
+        private static async Task ApplyMigrationsAsync(WebApplication app)
+        {
+            using var scope = app.Services.CreateScope();
+
+            var serviceDbContext = scope.ServiceProvider.GetRequiredService<ServiceDbContext>();
+            try
+            {
+                await serviceDbContext.Database.MigrateAsync();
+                Log.Information("SQLite database migrations applied successfully");
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Error applying SQLite migrations");
             }
 
-            // Middleware Pipeline Configuration
+            var businessDbContext = scope.ServiceProvider.GetRequiredService<BusinessDbContext>();
+            try
+            {
+                if (await businessDbContext.Database.CanConnectAsync())
+                {
+                    Log.Information("SQL Server connection successful");
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "SQL Server connection failed");
+            }
+        }
+
+        private static void ConfigureMiddleware(WebApplication app)
+        {
+            // Response compression and caching
             app.UseResponseCompression();
             app.UseResponseCaching();
             app.UseRateLimiter();
 
-            // Configure Swagger with versioning
+            // Serilog request logging
+            app.UseSerilogRequestLogging(options =>
+            {
+                options.MessageTemplate = "HTTP {RequestMethod} {RequestPath} responded {StatusCode} in {Elapsed:0.0000} ms";
+
+                options.GetLevel = (httpContext, elapsed, ex) =>
+                {
+                    if (httpContext.Request.Path.StartsWithSegments("/health") ||
+                        httpContext.Request.Path.StartsWithSegments("/metrics"))
+                        return LogEventLevel.Verbose;
+                    if (ex != null)
+                        return LogEventLevel.Error;
+                    if (httpContext.Response.StatusCode > 499)
+                        return LogEventLevel.Error;
+                    if (httpContext.Response.StatusCode > 399)
+                        return LogEventLevel.Warning;
+                    return LogEventLevel.Information;
+                };
+
+                options.EnrichDiagnosticContext = (diagnosticContext, httpContext) =>
+                {
+                    diagnosticContext.Set("RequestHost", httpContext.Request.Host.Value);
+                    diagnosticContext.Set("UserAgent", httpContext.Request.Headers["User-Agent"].FirstOrDefault());
+                    diagnosticContext.Set("RemoteIP", httpContext.Connection.RemoteIpAddress?.ToString());
+                    diagnosticContext.Set("RequestId", httpContext.TraceIdentifier);
+                };
+            });
+
+            // Configure Swagger
             ConfigureSwaggerUI(app);
 
             // Security headers
@@ -269,26 +353,6 @@ namespace MobileGwDataSync.API
                 context.Response.Headers["X-Xss-Protection"] = "1; mode=block";
                 context.Response.Headers["X-Frame-Options"] = "DENY";
                 await next();
-            });
-
-            // Request logging middleware
-            app.Use(async (context, next) =>
-            {
-                var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
-                logger.LogInformation("Request {Method} {Path} from {IP}",
-                    context.Request.Method,
-                    context.Request.Path,
-                    context.Connection.RemoteIpAddress);
-
-                var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-                await next();
-                stopwatch.Stop();
-
-                logger.LogInformation("Response {StatusCode} for {Method} {Path} in {ElapsedMs}ms",
-                    context.Response.StatusCode,
-                    context.Request.Method,
-                    context.Request.Path,
-                    stopwatch.ElapsedMilliseconds);
             });
 
             // Global error handling
@@ -302,8 +366,7 @@ namespace MobileGwDataSync.API
                     var exceptionHandlerFeature = context.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>();
                     if (exceptionHandlerFeature != null)
                     {
-                        var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
-                        logger.LogError(exceptionHandlerFeature.Error, "Unhandled exception occurred");
+                        Log.Error(exceptionHandlerFeature.Error, "Unhandled exception occurred");
 
                         await context.Response.WriteAsJsonAsync(new
                         {
@@ -330,7 +393,14 @@ namespace MobileGwDataSync.API
             }
 
             app.UseAuthorization();
+        }
+
+        private static void ConfigureEndpoints(WebApplication app)
+        {
+            // Prometheus metrics
             app.UseMetricServer();
+
+            // API Controllers
             app.MapControllers();
 
             // Health check endpoints
@@ -343,76 +413,57 @@ namespace MobileGwDataSync.API
             {
                 Predicate = _ => false
             });
+        }
 
-            // Custom metrics endpoint (alternative to UseMetricServer)
-            app.MapGet("/metrics", async context =>
+        private static async Task InitializeQuartzJobsAsync(WebApplication app)
+        {
+            await Task.Delay(5000); // Wait for initialization
+
+            using var scope = app.Services.CreateScope();
+            var scheduler = scope.ServiceProvider.GetRequiredService<ISchedulerFactory>();
+            var context = scope.ServiceProvider.GetRequiredService<ServiceDbContext>();
+
+            try
             {
-                await context.Response.WriteAsync("# Custom metrics endpoint\n");
-                // Here you can add custom metrics output
-            });
+                var jobs = await context.SyncJobs.Where(j => j.IsEnabled).ToListAsync();
+                var sched = await scheduler.GetScheduler();
 
-            // Initialize Quartz jobs from database
-            Task.Run(async () =>
+                foreach (var jobEntity in jobs)
+                {
+                    var job = JobBuilder.Create<DataSyncJob>()
+                        .WithIdentity(jobEntity.Id)
+                        .UsingJobData("JobId", jobEntity.Id)
+                        .Build();
+
+                    var trigger = TriggerBuilder.Create()
+                        .WithIdentity($"{jobEntity.Id}-trigger")
+                        .WithCronSchedule(jobEntity.CronExpression)
+                        .StartNow()
+                        .Build();
+
+                    await sched.ScheduleJob(job, trigger);
+                    Log.Information("Scheduled job {JobId} with cron {Cron}",
+                        jobEntity.Id, jobEntity.CronExpression);
+                }
+
+                await sched.Start();
+                Log.Information("Quartz scheduler started with {Count} jobs", jobs.Count);
+            }
+            catch (Exception ex)
             {
-                await Task.Delay(5000); // Wait for initialization
-                using var scope = app.Services.CreateScope();
-                var scheduler = scope.ServiceProvider.GetRequiredService<ISchedulerFactory>();
-                var context = scope.ServiceProvider.GetRequiredService<ServiceDbContext>();
-                var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
-
-                try
-                {
-                    var jobs = await context.SyncJobs.Where(j => j.IsEnabled).ToListAsync();
-                    var sched = await scheduler.GetScheduler();
-
-                    foreach (var jobEntity in jobs)
-                    {
-                        var job = JobBuilder.Create<DataSyncJob>()
-                            .WithIdentity(jobEntity.Id)
-                            .UsingJobData("JobId", jobEntity.Id)
-                            .Build();
-
-                        var trigger = TriggerBuilder.Create()
-                            .WithIdentity($"{jobEntity.Id}-trigger")
-                            .WithCronSchedule(jobEntity.CronExpression)
-                            .StartNow()
-                            .Build();
-
-                        await sched.ScheduleJob(job, trigger);
-                        logger.LogInformation("Scheduled job {JobId} with cron {Cron}",
-                            jobEntity.Id, jobEntity.CronExpression);
-                    }
-
-                    await sched.Start();
-                    logger.LogInformation("Quartz scheduler started with {Count} jobs", jobs.Count);
-                }
-                catch (Exception ex)
-                {
-                    logger.LogError(ex, "Failed to initialize Quartz jobs");
-                }
-            });
-
-            // Startup information
-            var logger = app.Services.GetRequiredService<ILogger<Program>>();
-            logger.LogInformation("MobileGW Data Sync API started");
-            logger.LogInformation("Environment: {Environment}", app.Environment.EnvironmentName);
-            logger.LogInformation("URLs: {Urls}", string.Join(", ", app.Urls));
-
-            app.Run();
+                Log.Error(ex, "Failed to initialize Quartz jobs");
+            }
         }
 
         private static void ConfigureSwagger(WebApplicationBuilder builder)
         {
             builder.Services.AddEndpointsApiExplorer();
 
-            // Configure SwaggerGen with versioning support
             builder.Services.AddSwaggerGen(options =>
             {
-                // Get API version description provider from services
                 var provider = builder.Services.BuildServiceProvider()
                     .GetService<IApiVersionDescriptionProvider>();
 
-                // Add a swagger document for each discovered API version
                 if (provider != null)
                 {
                     foreach (var description in provider.ApiVersionDescriptions)
@@ -422,7 +473,6 @@ namespace MobileGwDataSync.API
                 }
                 else
                 {
-                    // Fallback if versioning provider is not available
                     options.SwaggerDoc("v1", new OpenApiInfo
                     {
                         Title = "MobileGW Data Sync API",
@@ -436,7 +486,6 @@ namespace MobileGwDataSync.API
                     });
                 }
 
-                // Add XML comments if available
                 var xmlFile = $"{System.Reflection.Assembly.GetExecutingAssembly().GetName().Name}.xml";
                 var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
                 if (File.Exists(xmlPath))
@@ -444,7 +493,6 @@ namespace MobileGwDataSync.API
                     options.IncludeXmlComments(xmlPath);
                 }
 
-                // Add security definition
                 options.AddSecurityDefinition("ApiKey", new OpenApiSecurityScheme
                 {
                     Description = "API key needed to access the endpoints. X-Api-Key: {key}",
@@ -469,19 +517,16 @@ namespace MobileGwDataSync.API
                     }
                 });
 
-                // Custom operation filter to handle versioning in URLs
                 options.OperationFilter<SwaggerDefaultValues>();
             });
         }
 
         private static void ConfigureSwaggerUI(WebApplication app)
         {
-            // Enable Swagger for all environments (you can change this)
             app.UseSwagger();
 
             app.UseSwaggerUI(options =>
             {
-                // Build swagger endpoints for each API version
                 var provider = app.Services.GetService<IApiVersionDescriptionProvider>();
 
                 if (provider != null)
@@ -495,7 +540,6 @@ namespace MobileGwDataSync.API
                 }
                 else
                 {
-                    // Fallback endpoint
                     options.SwaggerEndpoint("/swagger/v1/swagger.json", "MobileGW Data Sync API v1");
                 }
 
@@ -539,9 +583,6 @@ namespace MobileGwDataSync.API
         }
     }
 
-    /// <summary>
-    /// Configures the Swagger generation options to support API versioning
-    /// </summary>
     public class SwaggerDefaultValues : Swashbuckle.AspNetCore.SwaggerGen.IOperationFilter
     {
         public void Apply(OpenApiOperation operation, Swashbuckle.AspNetCore.SwaggerGen.OperationFilterContext context)
@@ -550,7 +591,6 @@ namespace MobileGwDataSync.API
 
             operation.Deprecated |= apiDescription.IsDeprecated();
 
-            // Handle responses
             foreach (var responseType in context.ApiDescription.SupportedResponseTypes)
             {
                 var responseKey = responseType.IsDefaultResponse ? "default" : responseType.StatusCode.ToString();
@@ -572,7 +612,6 @@ namespace MobileGwDataSync.API
                 return;
             }
 
-            // Handle parameters
             foreach (var parameter in operation.Parameters)
             {
                 var description = apiDescription.ParameterDescriptions.FirstOrDefault(p => p.Name == parameter.Name);
@@ -586,7 +625,6 @@ namespace MobileGwDataSync.API
                         description.DefaultValue is not DBNull &&
                         description.ModelMetadata is { } modelMetadata)
                     {
-                        // Create OpenApiString for default values instead of using OpenApiAnyFactory
                         var defaultValue = description.DefaultValue?.ToString();
                         if (!string.IsNullOrEmpty(defaultValue))
                         {
