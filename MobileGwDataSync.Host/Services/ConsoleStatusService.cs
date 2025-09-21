@@ -70,46 +70,30 @@ namespace MobileGwDataSync.Host.Services
                 }
             }
             catch { /* Игнорируем ошибки */ }
-
-            // Блокируем консоль для атомарного обновления
-            lock (ConsoleLock)
+            // Сохраняем позицию курсора
+            var currentLine = 4;
+            Console.SetCursorPosition(0, currentLine);
+            // Очищаем строки статуса
+            for (int i = 0; i < 8; i++)
             {
-                try
-                {
-                    // Сохраняем позицию курсора
-                    var currentLine = 4;
-                    Console.SetCursorPosition(0, currentLine);
-
-                    // Очищаем строки статуса
-                    for (int i = 0; i < 8; i++)
-                    {
-                        Console.WriteLine(new string(' ', Console.WindowWidth - 1));
-                    }
-                    Console.SetCursorPosition(0, currentLine);
-
-                    // Выводим статус
-                    WriteStatusLine("Status", "Active", ConsoleColor.Green);
-                    WriteStatusLine("Uptime", FormatUptime(), ConsoleColor.White);
-                    WriteStatusLine("Next Sync", $"{_nextSyncTime:yyyy-MM-dd HH:mm:ss}", ConsoleColor.Yellow);
-                    WriteStatusLine("Time Until", FormatTimeUntil(), ConsoleColor.White);
-                    WriteStatusLine("Syncs Run", _syncCounter.ToString(), ConsoleColor.Cyan);
-
-                    // Анимация активности
-                    Console.WriteLine();
-                    Console.Write("  Activity: ");
-                    WriteSpinner();
-
-                    // Инструкции
-                    Console.SetCursorPosition(0, 14);
-                    Console.ForegroundColor = ConsoleColor.DarkGray;
-                    Console.WriteLine("Press Ctrl+C to stop the service...");
-                    Console.ResetColor();
-                }
-                catch
-                {
-                    // Игнорируем ошибки вывода в консоль
-                }
+                Console.WriteLine(new string(' ', Console.WindowWidth - 1));
             }
+            Console.SetCursorPosition(0, currentLine);
+            // Выводим статус
+            WriteStatusLine("Status", "Active", ConsoleColor.Green);
+            WriteStatusLine("Uptime", FormatUptime(), ConsoleColor.White);
+            WriteStatusLine("Next Sync", $"{_nextSyncTime:yyyy-MM-dd HH:mm:ss}", ConsoleColor.Yellow);
+            WriteStatusLine("Time Until", FormatTimeUntil(), ConsoleColor.White);
+            WriteStatusLine("Syncs Run", _syncCounter.ToString(), ConsoleColor.Cyan);
+            // Анимация активности
+            Console.WriteLine();
+            Console.Write("  Activity: ");
+            WriteSpinner();
+            // Инструкции
+            Console.SetCursorPosition(0, 14);
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.WriteLine("Press Ctrl+C to stop the service...");
+            Console.ResetColor();
         }
 
         private void WriteStatusLine(string label, string value, ConsoleColor valueColor)
