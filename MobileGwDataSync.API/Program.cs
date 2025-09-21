@@ -47,8 +47,8 @@ namespace MobileGwDataSync.API
                     Description = "API для управления синхронизацией данных между 1С и SQL Server",
                     Contact = new OpenApiContact
                     {
-                        Name = "Support Team",
-                        Email = "support@company.com"
+                        Name = "SoftKO",
+                        Email = "softko@gmail.com"
                     }
                 });
 
@@ -61,7 +61,7 @@ namespace MobileGwDataSync.API
                 }
 
                 // Добавляем поддержку авторизации (если нужно)
-                options.AddSecurityDefinition("ApiKey", new OpenApiSecurityScheme
+                options.AddSecurityDefinition("APIKey", new OpenApiSecurityScheme
                 {
                     Description = "API key needed to access the endpoints. X-Api-Key: {key}",
                     In = ParameterLocation.Header,
@@ -210,7 +210,7 @@ namespace MobileGwDataSync.API
                 app.UseSwaggerUI(options =>
                 {
                     options.SwaggerEndpoint("/swagger/v1/swagger.json", "MobileGW Data Sync API v1");
-                    options.RoutePrefix = string.Empty; // Swagger UI на корневом URL
+                    options.RoutePrefix = "swagger";
                     options.DefaultModelsExpandDepth(2);
                     options.DefaultModelRendering(Swashbuckle.AspNetCore.SwaggerUI.ModelRendering.Model);
                     options.DocExpansion(Swashbuckle.AspNetCore.SwaggerUI.DocExpansion.None);
