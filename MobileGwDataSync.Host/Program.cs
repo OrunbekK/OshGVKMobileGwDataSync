@@ -200,19 +200,21 @@ namespace MobileGwDataSync.Host
             {
                 var context = services.GetRequiredService<ServiceDbContext>();
 
-                /*// Пробуем применить миграции
+                /*
+                // Пробуем применить миграции
                 try
                 {
-                    //await context.Database.EnsureDeletedAsync();
-                    //await context.Database.EnsureCreatedAsync();
-                    await context.Database.MigrateAsync();
+                    await context.Database.EnsureDeletedAsync();
+                    await context.Database.EnsureCreatedAsync();
+                    //await context.Database.MigrateAsync();
                     Log.Information("Database migration completed successfully");
                 }
                 catch (Exception migrationEx)
                 {
                     Log.Warning("Migration failed: {Message}", migrationEx.Message);
                     // Продолжаем работу - возможно БД уже создана
-                }*/
+                }
+                */
 
                 // Проверяем подключение к существующей БД
                 if (await context.Database.CanConnectAsync())

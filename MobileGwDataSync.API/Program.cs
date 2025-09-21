@@ -261,7 +261,8 @@ namespace MobileGwDataSync.API
             var serviceDbContext = scope.ServiceProvider.GetRequiredService<ServiceDbContext>();
             try
             {
-                await serviceDbContext.Database.MigrateAsync();
+                await serviceDbContext.Database.EnsureCreatedAsync();
+                //await serviceDbContext.Database.MigrateAsync();
                 Log.Information("SQLite database migrations applied successfully");
             }
             catch (Exception ex)
