@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.Logging;
+﻿// OneCHttpConnector.cs с улучшенной устойчивостью
+using Microsoft.Extensions.Logging;
 using MobileGwDataSync.Core.Exceptions;
 using MobileGwDataSync.Core.Interfaces;
 using MobileGwDataSync.Core.Models.Configuration;
@@ -6,11 +7,10 @@ using MobileGwDataSync.Core.Models.DTO;
 using MobileGwDataSync.Integration.Models;
 using Newtonsoft.Json;
 using Polly;
+using Polly.CircuitBreaker;
 using Polly.Extensions.Http;
 using System.Diagnostics;
 using System.Net;
-using System.Net.Http.Headers;
-using System.Text;
 
 namespace MobileGwDataSync.Integration.OneC
 {
@@ -19,52 +19,60 @@ namespace MobileGwDataSync.Integration.OneC
         private readonly HttpClient _httpClient;
         private readonly ILogger<OneCHttpConnector> _logger;
         private readonly OneCSettings _settings;
-        private readonly IAsyncPolicy<HttpResponseMessage> _retryPolicy;
+        private readonly IAsyncPolicy<HttpResponseMessage> _resilientPolicy;
+        private readonly IMetricsService? _metricsService;
 
         public string SourceName => "1C HTTP Service";
 
         public OneCHttpConnector(
             IHttpClientFactory httpClientFactory,
             AppSettings appSettings,
-            ILogger<OneCHttpConnector> logger)
+            ILogger<OneCHttpConnector> logger,
+            IMetricsService? metricsService = null)
         {
             _settings = appSettings.OneC;
             _logger = logger;
-
-            // Создаем HttpClient через factory
+            _metricsService = metricsService;
             _httpClient = httpClientFactory.CreateClient("OneC");
 
-            // Настраиваем базовые параметры
-            var baseUrl = _settings.BaseUrl;
-            if (!baseUrl.EndsWith("/"))
-            {
-                baseUrl += "/";
-                _logger.LogWarning("BaseUrl didn't end with '/', automatically appended. New URL: {BaseUrl}", baseUrl);
-            }
-            _httpClient.BaseAddress = new Uri(baseUrl);
-            _httpClient.Timeout = TimeSpan.FromSeconds(_settings.Timeout);
+            // Создаем комбинированную политику: Retry + Circuit Breaker + Timeout
+            _resilientPolicy = Policy.WrapAsync(
+                // Circuit Breaker: открывается после 3 последовательных ошибок на 30 секунд
+                HttpPolicyExtensions
+                    .HandleTransientHttpError()
+                    .CircuitBreakerAsync(
+                        handledEventsAllowedBeforeBreaking: 3,
+                        durationOfBreak: TimeSpan.FromSeconds(30),
+                        onBreak: (outcome, duration) =>
+                        {
+                            _logger.LogWarning("Circuit breaker opened for {Duration}s", duration.TotalSeconds);
+                            _metricsService?.RecordSyncError("1C", "CircuitBreakerOpen");
+                        },
+                        onReset: () =>
+                        {
+                            _logger.LogInformation("Circuit breaker reset");
+                        }),
 
-            // Добавляем Basic Authentication
-            var authValue = Convert.ToBase64String(
-                Encoding.UTF8.GetBytes($"{_settings.Username}:{_settings.Password}"));
-            _httpClient.DefaultRequestHeaders.Authorization =
-                new AuthenticationHeaderValue("Basic", authValue);
+                // Retry: экспоненциальная задержка с jitter
+                HttpPolicyExtensions
+                    .HandleTransientHttpError()
+                    .WaitAndRetryAsync(
+                        retryCount: 3,
+                        sleepDurationProvider: retryAttempt =>
+                            TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)) +
+                            TimeSpan.FromMilliseconds(Random.Shared.Next(0, 1000)),
+                        onRetry: (outcome, timespan, retryCount, context) =>
+                        {
+                            _logger.LogWarning(
+                                "Retry {RetryCount} after {TimeSpan}s. Status: {StatusCode}",
+                                retryCount,
+                                timespan.TotalSeconds,
+                                outcome.Result?.StatusCode);
+                        }),
 
-            // Настраиваем Polly retry policy
-            _retryPolicy = HttpPolicyExtensions
-                .HandleTransientHttpError()
-                .OrResult(msg => !msg.IsSuccessStatusCode && msg.StatusCode != HttpStatusCode.Unauthorized)
-                .WaitAndRetryAsync(
-                    3,
-                    retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)),
-                    onRetry: (outcome, timespan, retryCount, context) =>
-                    {
-                        _logger.LogWarning(
-                            "Retry {RetryCount} after {TimeSpan}s. Status: {StatusCode}",
-                            retryCount,
-                            timespan.TotalSeconds,
-                            outcome.Result?.StatusCode);
-                    });
+                // Timeout: общий таймаут на операцию
+                Policy.TimeoutAsync<HttpResponseMessage>(TimeSpan.FromSeconds(_settings.Timeout))
+            );
         }
 
         public async Task<DataTableDTO> FetchDataAsync(
@@ -72,58 +80,42 @@ namespace MobileGwDataSync.Integration.OneC
             CancellationToken cancellationToken = default)
         {
             var stopwatch = Stopwatch.StartNew();
+            var endpoint = parameters.GetValueOrDefault("endpoint", "/subscribers");
 
             try
             {
-                // Определяем endpoint
-                var endpoint = parameters.GetValueOrDefault("endpoint", "/subscribers");
+                _logger.LogInformation("Fetching data from 1C endpoint: {Endpoint}", endpoint);
 
-                // Детальное логирование URL
-                _logger.LogInformation("=== 1C HTTP Request Details ===");
-                _logger.LogInformation("Base URL: {BaseUrl}", _httpClient.BaseAddress);
-                _logger.LogInformation("Endpoint parameter: {Endpoint}", endpoint);
-
-                // Проверка на null и сохранение в локальную переменную
-                var baseAddress = _httpClient.BaseAddress;
-                if (baseAddress == null)
-                {
-                    throw new DataSourceException("BaseAddress is not configured. Check OneC:BaseUrl in appsettings.json");
-                }
-
-                // Формируем полный URL
-                var fullUrl = new Uri(baseAddress, endpoint).ToString();
-                _logger.LogInformation("Full URL to call: {FullUrl}", fullUrl);
-                _logger.LogInformation("Authorization: Basic (User: {Username})", _settings.Username);
-                _logger.LogInformation("===============================");
-
-                // Выполняем запрос с retry policy
-                var response = await _retryPolicy.ExecuteAsync(async () =>
+                // Выполняем запрос с resilient policy
+                var response = await _resilientPolicy.ExecuteAsync(async (ct) =>
                 {
                     _logger.LogDebug("Executing GET request to: {Endpoint}", endpoint);
-                    var resp = await _httpClient.GetAsync(endpoint, cancellationToken);
-                    _logger.LogDebug("Response Status: {Status}, ReasonPhrase: {Reason}",
-                        resp.StatusCode, resp.ReasonPhrase);
-                    return resp;
-                });
+                    return await _httpClient.GetAsync(endpoint, ct);
+                }, cancellationToken);
 
                 if (response.StatusCode == HttpStatusCode.Unauthorized)
                 {
                     throw new DataSourceException("Authentication failed. Check username and password.");
                 }
 
-                if (!response.IsSuccessStatusCode)
-                {
-                    var error = await response.Content.ReadAsStringAsync(cancellationToken);
-                    throw new DataSourceException(
-                        $"1C returned error: {response.StatusCode}. Details: {error}");
-                }
+                response.EnsureSuccessStatusCode();
 
                 var json = await response.Content.ReadAsStringAsync(cancellationToken);
-                _logger.LogDebug("Received response from 1C: {Length} characters", json.Length);
 
-                // Парсим ответ используя существующий класс OneCSubscriber
-                var subscribers = ParseSubscribers(json);
-                var result = ConvertToDataTable(subscribers);
+                // Проверка на пустой ответ
+                if (string.IsNullOrWhiteSpace(json))
+                {
+                    _logger.LogWarning("Received empty response from 1C");
+                    return new DataTableDTO
+                    {
+                        Source = SourceName,
+                        FetchedAt = DateTime.UtcNow,
+                        Columns = new List<string> { "Account", "Subscriber", "Address", "Balance" },
+                        Rows = new List<Dictionary<string, object>>()
+                    };
+                }
+
+                var result = ParseAndConvert(json);
 
                 stopwatch.Stop();
                 _logger.LogInformation(
@@ -131,7 +123,15 @@ namespace MobileGwDataSync.Integration.OneC
                     result.TotalRows,
                     stopwatch.ElapsedMilliseconds);
 
+                // Метрики
+                _metricsService?.RecordStepDuration("1C", "FetchData", stopwatch.Elapsed);
+
                 return result;
+            }
+            catch (BrokenCircuitException ex)
+            {
+                _logger.LogError(ex, "Circuit breaker is open. 1C service is unavailable");
+                throw new DataSourceException("1C service is temporarily unavailable due to repeated failures", ex);
             }
             catch (TaskCanceledException ex)
             {
@@ -154,27 +154,13 @@ namespace MobileGwDataSync.Integration.OneC
         {
             try
             {
-                _logger.LogInformation("Testing connection to 1C...");
+                var testEndpoint = "/subscribers?limit=1";
 
-                // Пробуем получить данные с лимитом (если поддерживается)
-                var testEndpoint = "/gbill/hs/api/subscribers?limit=1";
+                var response = await _resilientPolicy.ExecuteAsync(async (ct) =>
+                    await _httpClient.GetAsync(testEndpoint, ct),
+                    cancellationToken);
 
-                var response = await _httpClient.GetAsync(testEndpoint, cancellationToken);
-
-                if (response.IsSuccessStatusCode)
-                {
-                    _logger.LogInformation("Connection to 1C successful");
-                    return true;
-                }
-
-                if (response.StatusCode == HttpStatusCode.Unauthorized)
-                {
-                    _logger.LogWarning("Connection test failed: Authentication required");
-                    return false;
-                }
-
-                _logger.LogWarning("Connection test failed with status: {Status}", response.StatusCode);
-                return false;
+                return response.IsSuccessStatusCode;
             }
             catch (Exception ex)
             {
@@ -183,81 +169,52 @@ namespace MobileGwDataSync.Integration.OneC
             }
         }
 
-        private List<OneCSubscriber> ParseSubscribers(string json)
+        private DataTableDTO ParseAndConvert(string json)
         {
             try
             {
-                if (string.IsNullOrWhiteSpace(json))
-                {
-                    _logger.LogWarning("Received empty response from 1C");
-                    return new List<OneCSubscriber>();
-                }
-
-                // Парсим новую структуру с обёрткой
                 var response = JsonConvert.DeserializeObject<OneCResponseWrapper>(json);
 
                 if (response == null || !response.Success)
                 {
-                    _logger.LogWarning("1C returned unsuccessful response or failed to deserialize");
-                    return new List<OneCSubscriber>();
+                    throw new DataSourceException("1C returned unsuccessful response");
                 }
 
-                if (response.Subscribers == null)
+                var dataTable = new DataTableDTO
                 {
-                    _logger.LogWarning("No subscribers in response");
-                    return new List<OneCSubscriber>();
+                    Source = SourceName,
+                    FetchedAt = DateTime.UtcNow,
+                    Columns = new List<string> { "Account", "Subscriber", "Address", "Balance" }
+                };
+
+                if (response.Subscribers != null)
+                {
+                    foreach (var subscriber in response.Subscribers.Where(s => !string.IsNullOrEmpty(s.Account)))
+                    {
+                        dataTable.Rows.Add(new Dictionary<string, object>
+                        {
+                            ["Account"] = subscriber.Account,
+                            ["Subscriber"] = subscriber.FIO ?? string.Empty,
+                            ["Address"] = subscriber.Address ?? string.Empty,
+                            ["Balance"] = subscriber.Balance
+                        });
+                    }
                 }
 
                 _logger.LogInformation(
-                    "Received {Count} subscribers. Stats: Individual={Individual}, Legal={Legal}, TotalDebt={Debt:N2}",
+                    "Parsed {Count} subscribers. Stats: Individual={Individual}, Legal={Legal}, TotalDebt={Debt:N2}",
                     response.TotalCount,
                     response.Statistics?.Individual,
                     response.Statistics?.Legal,
                     response.Statistics?.TotalDebt);
 
-                // Валидация и фильтрация
-                var validSubscribers = response.Subscribers
-                    .Where(s => !string.IsNullOrEmpty(s.Account))
-                    .ToList();
-
-                if (validSubscribers.Count < response.Subscribers.Count)
-                {
-                    _logger.LogWarning("Filtered out {Count} invalid subscribers (missing Account)",
-                        response.Subscribers.Count - validSubscribers.Count);
-                }
-
-                return validSubscribers;
+                return dataTable;
             }
             catch (JsonException ex)
             {
                 _logger.LogError(ex, "Failed to parse 1C response");
                 throw new DataSourceException("Invalid JSON response from 1C", ex);
             }
-        }
-
-        private DataTableDTO ConvertToDataTable(List<OneCSubscriber> subscribers)
-        {
-            var dataTable = new DataTableDTO
-            {
-                Source = SourceName,
-                FetchedAt = DateTime.UtcNow,
-                Columns = new List<string> { "Account", "Subscriber", "Address", "Balance" }
-            };
-
-            foreach (var subscriber in subscribers)
-            {
-                var row = new Dictionary<string, object>
-                {
-                    ["Account"] = subscriber.Account ?? string.Empty,
-                    ["Subscriber"] = subscriber.FIO ?? string.Empty,  // Мапим FIO -> Subscriber для БД
-                    ["Address"] = subscriber.Address ?? string.Empty,
-                    ["Balance"] = subscriber.Balance
-                };
-
-                dataTable.Rows.Add(row);
-            }
-
-            return dataTable;
         }
     }
 }
