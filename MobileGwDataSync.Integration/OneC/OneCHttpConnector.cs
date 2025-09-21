@@ -187,39 +187,50 @@ namespace MobileGwDataSync.Integration.OneC
         {
             try
             {
-                // Проверяем, что JSON не пустой
                 if (string.IsNullOrWhiteSpace(json))
                 {
                     _logger.LogWarning("Received empty response from 1C");
                     return new List<OneCSubscriber>();
                 }
 
-                // Парсим массив абонентов используя существующий класс
-                var subscribers = JsonConvert.DeserializeObject<List<OneCSubscriber>>(json);
+                // Парсим новую структуру с обёрткой
+                var response = JsonConvert.DeserializeObject<OneCResponseWrapper>(json);
 
-                if (subscribers == null)
+                if (response == null || !response.Success)
                 {
-                    _logger.LogWarning("Failed to deserialize subscribers, returning empty list");
+                    _logger.LogWarning("1C returned unsuccessful response or failed to deserialize");
                     return new List<OneCSubscriber>();
                 }
 
-                // Валидация данных
-                var validSubscribers = subscribers
+                if (response.Subscribers == null)
+                {
+                    _logger.LogWarning("No subscribers in response");
+                    return new List<OneCSubscriber>();
+                }
+
+                _logger.LogInformation(
+                    "Received {Count} subscribers. Stats: Individual={Individual}, Legal={Legal}, TotalDebt={Debt:N2}",
+                    response.TotalCount,
+                    response.Statistics?.Individual,
+                    response.Statistics?.Legal,
+                    response.Statistics?.TotalDebt);
+
+                // Валидация и фильтрация
+                var validSubscribers = response.Subscribers
                     .Where(s => !string.IsNullOrEmpty(s.Account))
                     .ToList();
 
-                if (validSubscribers.Count < subscribers.Count)
+                if (validSubscribers.Count < response.Subscribers.Count)
                 {
-                    _logger.LogWarning(
-                        "Filtered out {Count} invalid subscribers (missing Account)",
-                        subscribers.Count - validSubscribers.Count);
+                    _logger.LogWarning("Filtered out {Count} invalid subscribers (missing Account)",
+                        response.Subscribers.Count - validSubscribers.Count);
                 }
 
                 return validSubscribers;
             }
             catch (JsonException ex)
             {
-                _logger.LogError(ex, "Failed to parse 1C response as JSON");
+                _logger.LogError(ex, "Failed to parse 1C response");
                 throw new DataSourceException("Invalid JSON response from 1C", ex);
             }
         }

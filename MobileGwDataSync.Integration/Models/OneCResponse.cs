@@ -3,30 +3,43 @@ using System.Text.Json.Serialization;
 
 namespace MobileGwDataSync.Integration.Models
 {
-    /// <summary>
-    /// Базовый ответ от 1С
-    /// </summary>
-    public class OneCResponse<T>
+    public class OneCResponseWrapper
     {
+        [JsonProperty("version")]
+        public string Version { get; set; } = string.Empty;
+
+        [JsonProperty("timestamp")]
+        public DateTime Timestamp { get; set; }
+
         [JsonProperty("success")]
         public bool Success { get; set; }
 
-        [JsonProperty("data")]
-        public T? Data { get; set; }
+        [JsonProperty("subscribers")]
+        public List<OneCSubscriber>? Subscribers { get; set; }
 
-        [JsonProperty("error")]
-        public string? Error { get; set; }
+        [JsonProperty("totalCount")]
+        public int TotalCount { get; set; }
 
-        [JsonProperty("count")]
-        public int? Count { get; set; }
-
-        [JsonProperty("timestamp")]
-        public DateTime? Timestamp { get; set; }
+        [JsonProperty("statistics")]
+        public OneCStatistics? Statistics { get; set; }
     }
 
-    /// <summary>
-    /// Модель абонента из 1С (реальная структура)
-    /// </summary>
+    public class OneCStatistics
+    {
+        [JsonProperty("individual")]
+        public int Individual { get; set; }
+
+        [JsonProperty("legal")]
+        public int Legal { get; set; }
+
+        [JsonProperty("totalDebt")]
+        public decimal TotalDebt { get; set; }
+
+        [JsonProperty("totalAdvance")]
+        public decimal TotalAdvance { get; set; }
+    }
+
+    // Обновите OneCSubscriber, добавив новые поля:
     public class OneCSubscriber
     {
         [JsonProperty("Account")]
@@ -40,6 +53,12 @@ namespace MobileGwDataSync.Integration.Models
 
         [JsonProperty("Balance")]
         public decimal Balance { get; set; }
+
+        [JsonProperty("Type")]
+        public int Type { get; set; }
+
+        [JsonProperty("State")]
+        public string State { get; set; } = string.Empty;
     }
 
     /// <summary>
