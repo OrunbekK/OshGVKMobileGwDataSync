@@ -58,6 +58,27 @@ namespace MobileGwDataSync.Data.Migrations
                 maxLength: 200,
                 nullable: true);
 
+            // Создаем таблицу job_locks
+            migrationBuilder.CreateTable(
+                name: "job_locks",
+                columns: table => new
+                {
+                    JobId = table.Column<string>(type: "TEXT", maxLength: 100, nullable: false),
+                    AcquiredAt = table.Column<DateTime>(type: "TEXT", nullable: false),
+                    ExpiresAt = table.Column<DateTime>(type: "TEXT", nullable: false),
+                    LockedBy = table.Column<string>(type: "TEXT", maxLength: 100, nullable: false),
+                    IsActive = table.Column<bool>(type: "INTEGER", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_job_locks", x => x.JobId);
+                });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_job_locks_ExpiresAt",
+                table: "job_locks",
+                column: "ExpiresAt");
+
             // Обновляем существующую запись
             migrationBuilder.Sql(@"
                 UPDATE sync_jobs 
@@ -73,6 +94,7 @@ namespace MobileGwDataSync.Data.Migrations
 
         protected override void Down(MigrationBuilder migrationBuilder)
         {
+            migrationBuilder.DropTable(name: "job_locks");
             migrationBuilder.DropColumn(name: "JobType", table: "sync_jobs");
             migrationBuilder.DropColumn(name: "DependsOnJobId", table: "sync_jobs");
             migrationBuilder.DropColumn(name: "IsExclusive", table: "sync_jobs");
