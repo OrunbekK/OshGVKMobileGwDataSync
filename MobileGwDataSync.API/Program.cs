@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi.Models;
 using MobileGwDataSync.API.Controllers;
 using MobileGwDataSync.Core.Interfaces;
+using MobileGwDataSync.Core.Jobs;
 using MobileGwDataSync.Core.Models.Configuration;
 using MobileGwDataSync.Core.Services;
 using MobileGwDataSync.Data.Context;
