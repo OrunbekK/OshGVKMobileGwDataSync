@@ -189,10 +189,12 @@ namespace MobileGwDataSync.Data.SqlServer
             table.Columns.Add("Subscriber", typeof(string));
             table.Columns.Add("Address", typeof(string));
             table.Columns.Add("Balance", typeof(decimal));
+            table.Columns.Add("Type", typeof(byte));
+            table.Columns.Add("State", typeof(string));
+            table.Columns.Add("ControllerId", typeof(string));
+            table.Columns.Add("RouteId", typeof(string));
 
-            // Устанавливаем primary key для оптимизации
             table.PrimaryKey = new[] { table.Columns["Account"]! };
-
             return table;
         }
 
@@ -225,10 +227,14 @@ namespace MobileGwDataSync.Data.SqlServer
                 var dataRow = _dataTable.NewRow();
 
                 // Мапим поля с проверкой
-                dataRow["Account"] = account;
-                dataRow["Subscriber"] = row.GetValueOrDefault("Subscriber", string.Empty);  // FIO уже преобразовано в Subscriber
+                dataRow["Account"] = row.GetValueOrDefault("Account", string.Empty);
+                dataRow["Subscriber"] = row.GetValueOrDefault("Subscriber", string.Empty);
                 dataRow["Address"] = row.GetValueOrDefault("Address", string.Empty);
                 dataRow["Balance"] = Convert.ToDecimal(row.GetValueOrDefault("Balance", 0m));
+                dataRow["Type"] = Convert.ToByte(row.GetValueOrDefault("Type", 0));
+                dataRow["State"] = row.GetValueOrDefault("State", string.Empty);
+                dataRow["ControllerId"] = row.GetValueOrDefault("ControllerId", string.Empty);
+                dataRow["RouteId"] = row.GetValueOrDefault("RouteId", string.Empty);
 
                 _dataTable.Rows.Add(dataRow);
             }

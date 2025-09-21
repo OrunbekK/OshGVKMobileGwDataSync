@@ -46,7 +46,6 @@ namespace MobileGwDataSync.API
                 // Configure Serilog for the application
                 builder.Host.UseSerilog((context, services, configuration) => configuration
                     .ReadFrom.Configuration(context.Configuration)
-                    .ReadFrom.Services(services)
                     .Enrich.FromLogContext()
                     .Enrich.WithMachineName()
                     .Enrich.WithEnvironmentName()
@@ -257,19 +256,30 @@ namespace MobileGwDataSync.API
         private static async Task ApplyMigrationsAsync(WebApplication app)
         {
             using var scope = app.Services.CreateScope();
-
             var serviceDbContext = scope.ServiceProvider.GetRequiredService<ServiceDbContext>();
+
             try
             {
-                await serviceDbContext.Database.EnsureCreatedAsync();
-                //await serviceDbContext.Database.MigrateAsync();
-                Log.Information("SQLite database migrations applied successfully");
+                // Проверяем, существует ли БД
+                var dbExists = await serviceDbContext.Database.CanConnectAsync();
+
+                if (!dbExists)
+                {
+                    // Создаем только если не существует
+                    await serviceDbContext.Database.EnsureCreatedAsync();
+                    Log.Information("SQLite database created");
+                }
+                else
+                {
+                    Log.Information("SQLite database already exists");
+                }
             }
             catch (Exception ex)
             {
-                Log.Error(ex, "Error applying SQLite migrations");
+                Log.Error(ex, "Error creating SQLite database");
             }
 
+            // Проверка SQL Server
             var businessDbContext = scope.ServiceProvider.GetRequiredService<BusinessDbContext>();
             try
             {
@@ -400,27 +410,17 @@ namespace MobileGwDataSync.API
                 var provider = builder.Services.BuildServiceProvider()
                     .GetService<IApiVersionDescriptionProvider>();
 
-                if (provider != null)
+                options.SwaggerDoc("v1", new OpenApiInfo
                 {
-                    foreach (var description in provider.ApiVersionDescriptions)
+                    Title = "MobileGW Data Sync API",
+                    Version = "v1",
+                    Description = "API for managing data synchronization between 1C and SQL Server",
+                    Contact = new OpenApiContact
                     {
-                        options.SwaggerDoc(description.GroupName, CreateApiInfo(description));
+                        Name = "SoftKO",
+                        Email = "softko@gmail.com"
                     }
-                }
-                else
-                {
-                    options.SwaggerDoc("v1", new OpenApiInfo
-                    {
-                        Title = "MobileGW Data Sync API",
-                        Version = "v1",
-                        Description = "API for managing data synchronization between 1C and SQL Server",
-                        Contact = new OpenApiContact
-                        {
-                            Name = "SoftKO",
-                            Email = "softko@gmail.com"
-                        }
-                    });
-                }
+                });
 
                 var xmlFile = $"{System.Reflection.Assembly.GetExecutingAssembly().GetName().Name}.xml";
                 var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);

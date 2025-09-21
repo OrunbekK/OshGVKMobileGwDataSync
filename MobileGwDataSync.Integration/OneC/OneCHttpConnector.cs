@@ -164,13 +164,15 @@ namespace MobileGwDataSync.Integration.OneC
             );
         }
 
-        // OneCHttpConnector.cs - исправленный метод TestConnectionAsync
-
         public async Task<bool> TestConnectionAsync(CancellationToken cancellationToken = default)
         {
             try
             {
-                var testEndpoint = "subscribers?limit=1";
+                var testEndpoint = _settings.HealthCheckEndpoint ?? "health";
+                if (testEndpoint.StartsWith("/"))
+                {
+                    testEndpoint = testEndpoint.Substring(1);
+                }
 
                 _logger.LogDebug("Testing connection. BaseAddress: {BaseAddress}, Endpoint: {Endpoint}",
                     _httpClient.BaseAddress, testEndpoint);

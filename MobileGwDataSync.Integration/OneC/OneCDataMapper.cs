@@ -19,9 +19,13 @@ namespace MobileGwDataSync.Integration.OneC
             return new Dictionary<string, object>
             {
                 ["Account"] = source.Account,
-                ["FIO"] = source.FIO,
+                ["Subscriber"] = source.FIO,
                 ["Address"] = source.Address,
-                ["Balance"] = source.Balance
+                ["Balance"] = source.Balance,
+                ["Type"] = source.Type,
+                ["State"] = source.State,
+                ["ControllerId"] = source.ControllerId,
+                ["RouteId"] = source.RouteId
             };
         }
     }

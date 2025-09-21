@@ -101,7 +101,7 @@ namespace MobileGwDataSync.Data.Context
                     IsEnabled = true,
                     IsExclusive = true,
                     Priority = 10,
-                    OneCEndpoint = "/api/subscribers",
+                    OneCEndpoint = "subscribers",
                     TargetTable = "staging_subscribers",
                     TargetProcedure = "sp_MergeSubscribers",
                     CreatedAt = DateTime.UtcNow

@@ -39,26 +39,31 @@ namespace MobileGwDataSync.Integration.Models
         public decimal TotalAdvance { get; set; }
     }
 
-    // Обновите OneCSubscriber, добавив новые поля:
     public class OneCSubscriber
     {
-        [JsonProperty("Account")]
+        [JsonProperty("account")]
         public string Account { get; set; } = string.Empty;
 
-        [JsonProperty("FIO")]
+        [JsonProperty("fio")]
         public string FIO { get; set; } = string.Empty;
 
-        [JsonProperty("Address")]
+        [JsonProperty("address")]
         public string Address { get; set; } = string.Empty;
 
-        [JsonProperty("Balance")]
+        [JsonProperty("balance")]
         public decimal Balance { get; set; }
 
-        [JsonProperty("Type")]
-        public int Type { get; set; }
+        [JsonProperty("type")]
+        public byte Type { get; set; }
 
-        [JsonProperty("State")]
+        [JsonProperty("state")]
         public string State { get; set; } = string.Empty;
+
+        [JsonProperty("controllerId")]
+        public string ControllerId { get; set; } = string.Empty;
+
+        [JsonProperty("routeId")]
+        public string RouteId { get; set; } = string.Empty;
     }
 
     /// <summary>

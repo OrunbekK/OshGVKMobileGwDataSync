@@ -200,7 +200,7 @@ namespace MobileGwDataSync.Data.Migrations
                     true,
                     true,
                     10,
-                    "/api/subscribers",
+                    "subscribers",
                     "staging_subscribers",
                     "USP_MA_MergeSubscribers",
                     new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc),
