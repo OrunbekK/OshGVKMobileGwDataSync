@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
-VisualStudioVersion = 17.14.36511.14 d17.14
+VisualStudioVersion = 17.14.36511.14
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MobileGwDataSync.Core", "MobileGwDataSync.Core\MobileGwDataSync.Core.csproj", "{27D0CCFE-3C1A-4334-9F73-B351FFCB3B08}"
 EndProject
@@ -20,6 +20,8 @@ EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{02EA681E-C7D8-13C7-8484-4AC65E1B71E8}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "docs", "docs", "{A8667A51-EFCB-47ED-ABBB-D38D3D993D0D}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "shared", "shared", "{F052651E-FC43-47CD-AB99-8590F1F46777}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -67,6 +69,7 @@ Global
 		{D1BF1BAC-9DFA-44DF-AF39-4CFAFC2B3B91} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
 		{6BDEB1AE-49E5-4C77-8734-02A86F9846C2} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
 		{18839C1B-E0D9-4960-B793-328745307F89} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
+		{F052651E-FC43-47CD-AB99-8590F1F46777} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {C52880B2-CE87-4E24-96C7-FA796CD3BA35}
