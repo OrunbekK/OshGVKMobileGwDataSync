@@ -7,34 +7,37 @@ namespace MobileGwDataSync.Monitoring.Metrics
     /// </summary>
     public class MetricsService : IMetricsService
     {
-        public void IncrementJobsStarted(string jobName)
+        public void RecordSyncStart(string jobName)
         {
             CustomMetrics.JobsStarted.WithLabels(jobName).Inc();
         }
 
-        public void IncrementJobsCompleted(string jobName, string status)
+        public void RecordSyncComplete(string jobName, TimeSpan duration, int recordsRead, int recordsWritten)
         {
-            CustomMetrics.JobsCompleted.WithLabels(jobName, status).Inc();
-        }
-
-        public void RecordJobDuration(string jobName, TimeSpan duration)
-        {
+            CustomMetrics.JobsCompleted.WithLabels(jobName, "Success").Inc();
             CustomMetrics.JobDuration.WithLabels(jobName).Observe(duration.TotalSeconds);
+            CustomMetrics.RecordsRead.WithLabels(jobName).Inc(recordsRead);
+            CustomMetrics.RecordsWritten.WithLabels(jobName).Inc(recordsWritten);
         }
 
-        public void IncrementRecordsRead(string jobName, int count)
+        public void RecordSyncError(string jobName, TimeSpan duration, string errorType)
         {
-            CustomMetrics.RecordsRead.WithLabels(jobName).Inc(count);
-        }
-
-        public void IncrementRecordsWritten(string jobName, int count)
-        {
-            CustomMetrics.RecordsWritten.WithLabels(jobName).Inc(count);
-        }
-
-        public void IncrementJobErrors(string jobName, string errorType)
-        {
+            CustomMetrics.JobsCompleted.WithLabels(jobName, "Failed").Inc();
+            CustomMetrics.JobDuration.WithLabels(jobName).Observe(duration.TotalSeconds);
             CustomMetrics.JobErrors.WithLabels(jobName, errorType).Inc();
         }
+    }
+
+    /// <summary>
+    /// A null object implementation of IMetricsService that does nothing.
+    /// Used when metrics are disabled.
+    /// </summary>
+    public class NullMetricsService : IMetricsService
+    {
+        public void RecordSyncStart(string jobName) { /* Do nothing */ }
+
+        public void RecordSyncComplete(string jobName, TimeSpan duration, int recordsRead, int recordsWritten) { /* Do nothing */ }
+
+        public void RecordSyncError(string jobName, TimeSpan duration, string errorType) { /* Do nothing */ }
     }
 }

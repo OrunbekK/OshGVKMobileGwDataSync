@@ -10,6 +10,7 @@ using MobileGwDataSync.Data.Repositories;
 using MobileGwDataSync.Data.SqlServer;
 using MobileGwDataSync.Integration.OneC;
 using MobileGwDataSync.Monitoring.Metrics;
+using Prometheus;
 using Quartz;
 using Quartz.Impl;
 using System.Text.Json.Serialization;
@@ -113,11 +114,13 @@ namespace MobileGwDataSync.API
             builder.Services.AddScoped<ISyncRunRepository, SyncRunRepository>();
             builder.Services.AddScoped<ISyncService, SyncOrchestrator>();
 
-            // MetricsService опционально (может быть null)
+            // MetricsService registration based on configuration
             if (builder.Configuration.GetValue<bool>("Monitoring:Prometheus:Enabled", false))
-            {
+                // Метрики включены - регистрируем настоящую реализацию
                 builder.Services.AddSingleton<IMetricsService, MetricsService>();
-            }
+            else
+                // Метрики выключены - регистрируем "пустышку"
+                builder.Services.AddSingleton<IMetricsService, NullMetricsService>();
 
             // Quartz configuration
             builder.Services.AddSingleton<ISchedulerFactory, StdSchedulerFactory>();
@@ -281,6 +284,8 @@ namespace MobileGwDataSync.API
             }
 
             app.UseAuthorization();
+
+            app.UseMetricServer();
 
             app.MapControllers();
 

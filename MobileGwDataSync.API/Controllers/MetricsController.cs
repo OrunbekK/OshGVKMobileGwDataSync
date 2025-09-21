@@ -29,24 +29,6 @@ namespace MobileGwDataSync.API.Controllers
         }
 
         /// <summary>
-        /// Получить текущие метрики
-        /// </summary>
-        [HttpGet("current")]
-        public ActionResult<Dictionary<string, double>> GetCurrentMetrics()
-        {
-            var metrics = _metricsService?.GetCurrentMetrics() ?? new Dictionary<string, double>();
-
-            // Добавляем системные метрики
-            var process = Process.GetCurrentProcess();
-            metrics["process_memory_mb"] = process.WorkingSet64 / (1024.0 * 1024.0);
-            metrics["process_cpu_seconds"] = process.TotalProcessorTime.TotalSeconds;
-            metrics["gc_memory_mb"] = GC.GetTotalMemory(false) / (1024.0 * 1024.0);
-            metrics["thread_count"] = Process.GetCurrentProcess().Threads.Count;
-
-            return Ok(metrics);
-        }
-
-        /// <summary>
         /// Получить метрики производительности
         /// </summary>
         [HttpGet("performance")]
@@ -103,43 +85,6 @@ namespace MobileGwDataSync.API.Controllers
             };
 
             return Ok(performanceDTO);
-        }
-
-        /// <summary>
-        /// Экспорт метрик в формате Prometheus
-        /// </summary>
-        [HttpGet("prometheus")]
-        [Produces("text/plain")]
-        public async Task<IActionResult> GetPrometheusMetrics()
-        {
-            var sb = new StringBuilder();
-
-            // Метрики из сервиса
-            var currentMetrics = _metricsService?.GetCurrentMetrics() ?? new Dictionary<string, double>();
-            foreach (var metric in currentMetrics)
-            {
-                sb.AppendLine($"# TYPE {metric.Key} gauge");
-                sb.AppendLine($"{metric.Key} {metric.Value}");
-            }
-
-            // Системные метрики
-            var process = Process.GetCurrentProcess();
-            sb.AppendLine("# TYPE process_memory_bytes gauge");
-            sb.AppendLine($"process_memory_bytes {process.WorkingSet64}");
-
-            sb.AppendLine("# TYPE process_cpu_seconds_total counter");
-            sb.AppendLine($"process_cpu_seconds_total {process.TotalProcessorTime.TotalSeconds}");
-
-            // Метрики БД
-            var jobCount = await _context.SyncJobs.CountAsync();
-            sb.AppendLine("# TYPE sync_jobs_total gauge");
-            sb.AppendLine($"sync_jobs_total {jobCount}");
-
-            var activeRuns = await _context.SyncRuns.CountAsync(r => r.Status == "InProgress");
-            sb.AppendLine("# TYPE sync_runs_active gauge");
-            sb.AppendLine($"sync_runs_active {activeRuns}");
-
-            return Content(sb.ToString(), "text/plain; version=0.0.4");
         }
 
         /// <summary>
