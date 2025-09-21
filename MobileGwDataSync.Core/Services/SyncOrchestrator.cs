@@ -151,11 +151,12 @@ namespace MobileGwDataSync.Core.Services
 
                 // Записываем метрики
                 _metricsService?.RecordSyncComplete(
-                    jobName: jobId,
-                    duration: stopwatch.Elapsed,
-                    recordsRead: fetchedData.TotalRows,
-                    recordsWritten: fetchedData.TotalRows
+                    jobId,                      // jobName
+                    true,                       // success
+                    fetchedData.TotalRows,      // recordsProcessed
+                    stopwatch.Elapsed           // duration
                 );
+
 
                 _logger.LogInformation(
                     "Sync completed successfully. RunId: {RunId}, Duration: {Duration}s, Records: {Records}",
@@ -207,7 +208,7 @@ namespace MobileGwDataSync.Core.Services
                 // Финализируем target при ошибке
                 await _dataTarget.FinalizeTargetAsync(false, CancellationToken.None);
 
-                _metricsService?.RecordSyncError(jobId, stopwatch.Elapsed, ex.GetType().Name);
+                _metricsService?.RecordSyncError(jobId, ex.GetType().Name);
 
                 return new SyncResultDTO
                 {
