@@ -2,8 +2,8 @@
 {
     public class JobMetricsDTO
     {
-        public string JobId { get; set; }
-        public object Period { get; set; }
+        public string JobId { get; set; } = string.Empty;
+        public object? Period { get; set; }
         public int TotalRuns { get; set; }
         public double SuccessRate { get; set; }
         public double AverageRecords { get; set; }
@@ -11,6 +11,6 @@
         public double AverageDuration { get; set; }
         public double Throughput { get; set; }
         public double ErrorRate { get; set; }
-        public List<TimelinePointDTO> Timeline { get; set; }
+        public List<TimelinePointDTO>? Timeline { get; set; }
     }
 }

@@ -5,7 +5,6 @@ using MobileGwDataSync.Core.Services;
 using MobileGwDataSync.Data.Context;
 using MobileGwDataSync.Data.Repositories;
 using MobileGwDataSync.Data.SqlServer;
-using MobileGwDataSync.Host.Jobs;
 using MobileGwDataSync.Host.Services;
 using MobileGwDataSync.Host.Services.HostedServices;
 using MobileGwDataSync.Integration.OneC;

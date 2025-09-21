@@ -11,6 +11,6 @@ namespace MobileGwDataSync.API.Models.Responses.Sync
         public int TotalRecordsProcessed { get; set; }
         public double AverageDuration { get; set; }
         public double SuccessRate { get; set; }
-        public List<JobStatisticDTO> JobStatistics { get; set; }
+        public List<JobStatisticDTO>? JobStatistics { get; set; }
     }
 }

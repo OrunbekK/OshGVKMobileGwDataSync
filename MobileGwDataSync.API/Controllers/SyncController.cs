@@ -4,9 +4,7 @@ using MobileGwDataSync.API.Models.Responses.Jobs;
 using MobileGwDataSync.API.Models.Responses.Metrics;
 using MobileGwDataSync.API.Models.Responses.Sync;
 using MobileGwDataSync.Core.Interfaces;
-using MobileGwDataSync.Core.Models.Domain;
 using MobileGwDataSync.Data.Context;
-using MobileGwDataSync.Data.Entities;
 
 namespace MobileGwDataSync.API.Controllers
 {

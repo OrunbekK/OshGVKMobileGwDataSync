@@ -1,15 +1,11 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using MobileGwDataSync.API.Models.Requests;
-using MobileGwDataSync.API.Models.Responses;
 using MobileGwDataSync.API.Models.Responses.Jobs;
-using MobileGwDataSync.Core.Models.Configuration;
-using MobileGwDataSync.Core.Models.Domain;
 using MobileGwDataSync.Data.Context;
 using MobileGwDataSync.Data.Entities;
 using Newtonsoft.Json;
 using Quartz;
-using System.Reflection.Metadata;
 
 namespace MobileGwDataSync.API.Controllers
 {

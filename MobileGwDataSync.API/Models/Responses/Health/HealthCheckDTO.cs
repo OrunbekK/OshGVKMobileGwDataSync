@@ -2,9 +2,9 @@
 {
     public class HealthCheckDTO
     {
-        public string Status { get; set; }
+        public string Status { get; set; } = string.Empty;
         public DateTime Timestamp { get; set; }
         public DateTime Uptime { get; set; }
-        public Dictionary<string, ComponentHealthDTO> Checks { get; set; }
+        public Dictionary<string, ComponentHealthDTO>? Checks { get; set; }
     }
 }

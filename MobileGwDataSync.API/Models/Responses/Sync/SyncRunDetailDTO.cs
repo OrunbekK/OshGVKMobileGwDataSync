@@ -4,7 +4,7 @@ namespace MobileGwDataSync.API.Models.Responses.Sync
 {
     public class SyncRunDetailDTO : SyncRunDTO
     {
-        public List<SyncRunStepDTO> Steps { get; set; }
-        public List<MetricDTO> Metrics { get; set; }
+        public List<SyncRunStepDTO>? Steps { get; set; }
+        public List<MetricDTO>? Metrics { get; set; }
     }
 }
