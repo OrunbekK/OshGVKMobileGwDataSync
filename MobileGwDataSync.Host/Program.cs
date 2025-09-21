@@ -85,14 +85,7 @@ namespace MobileGwDataSync.Host
                     .ReadFrom.Services(services)
                     .Enrich.FromLogContext()
                     .WriteTo.Console()
-                    .WriteTo.File(
-                        Path.Combine("logs", "log-.txt"),
-                        rollingInterval: RollingInterval.Day,
-                        retainedFileCountLimit: 30,
-                        fileSizeLimitBytes: 10_485_760, // 10MB
-                        rollOnFileSizeLimit: true,
-                        shared: true,
-                        flushToDiskInterval: TimeSpan.FromSeconds(1)))
+                )
                 .ConfigureServices((hostContext, services) =>
                 {
                     ConfigureServices(services, hostContext.Configuration);
