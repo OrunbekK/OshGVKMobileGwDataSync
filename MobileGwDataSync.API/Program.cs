@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc.ApiExplorer;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi.Models;
+using MobileGwDataSync.API.Controllers;
 using MobileGwDataSync.Core.Interfaces;
 using MobileGwDataSync.Core.Jobs;
 using MobileGwDataSync.Core.Models.Configuration;
@@ -198,10 +199,10 @@ namespace MobileGwDataSync.API
                             ? Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Degraded
                             : Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Unhealthy;
 
-                    return Task.FromResult(new Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult(
+                    return new Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult(
                         status,
                         $"Memory usage: {allocated / (1024 * 1024)} MB",
-                        data: data));
+                        data: data);
                 }, tags: new[] { "system" });
 
             // CORS
@@ -549,14 +550,17 @@ namespace MobileGwDataSync.API
 
             operation.Deprecated |= apiDescription.IsDeprecated();
 
+            // Handle responses
             foreach (var responseType in context.ApiDescription.SupportedResponseTypes)
             {
                 var responseKey = responseType.IsDefaultResponse ? "default" : responseType.StatusCode.ToString();
-                var response = operation.Responses[responseKey];
-
-                foreach (var contentType in response.Content.Keys)
+                if (operation.Responses.TryGetValue(responseKey, out var response))
                 {
-                    if (responseType.ApiResponseFormats.All(x => x.MediaType != contentType))
+                    var contentTypesToRemove = response.Content.Keys
+                        .Where(contentType => responseType.ApiResponseFormats.All(x => x.MediaType != contentType))
+                        .ToList();
+
+                    foreach (var contentType in contentTypesToRemove)
                     {
                         response.Content.Remove(contentType);
                     }
@@ -568,24 +572,30 @@ namespace MobileGwDataSync.API
                 return;
             }
 
+            // Handle parameters
             foreach (var parameter in operation.Parameters)
             {
-                var description = apiDescription.ParameterDescriptions.First(p => p.Name == parameter.Name);
+                var description = apiDescription.ParameterDescriptions.FirstOrDefault(p => p.Name == parameter.Name);
 
-                parameter.Description ??= description.ModelMetadata?.Description;
-
-                if (parameter.Schema.Default == null &&
-                    description.DefaultValue != null &&
-                    description.DefaultValue is not DBNull &&
-                    description.ModelMetadata is { } modelMetadata)
+                if (description != null)
                 {
-                    var json = System.Text.Json.JsonSerializer.Serialize(
-                        description.DefaultValue,
-                        modelMetadata.ModelType);
-                    parameter.Schema.Default = Microsoft.OpenApi.Any.OpenApiAnyFactory.CreateFromJson(json);
-                }
+                    parameter.Description ??= description.ModelMetadata?.Description;
 
-                parameter.Required |= description.IsRequired;
+                    if (parameter.Schema.Default == null &&
+                        description.DefaultValue != null &&
+                        description.DefaultValue is not DBNull &&
+                        description.ModelMetadata is { } modelMetadata)
+                    {
+                        // Create OpenApiString for default values instead of using OpenApiAnyFactory
+                        var defaultValue = description.DefaultValue?.ToString();
+                        if (!string.IsNullOrEmpty(defaultValue))
+                        {
+                            parameter.Schema.Default = new Microsoft.OpenApi.Any.OpenApiString(defaultValue);
+                        }
+                    }
+
+                    parameter.Required |= description.IsRequired;
+                }
             }
         }
     }

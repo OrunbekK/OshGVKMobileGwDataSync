@@ -1,6 +1,8 @@
 ﻿using Asp.Versioning;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using MobileGwDataSync.API.Models.Requests;
+using MobileGwDataSync.API.Models.Responses.Alerts;
 using MobileGwDataSync.Data.Context;
 using MobileGwDataSync.Data.Entities;
 using Newtonsoft.Json;
@@ -27,10 +29,10 @@ namespace MobileGwDataSync.API.Controllers
         /// Получить список правил оповещений
         /// </summary>
         [HttpGet("rules")]
-        public async Task<ActionResult<IEnumerable<AlertRuleDto>>> GetAlertRules()
+        public async Task<ActionResult<IEnumerable<AlertRuleDTO>>> GetAlertRules()
         {
             var rules = await _context.AlertRules
-                .Select(r => new AlertRuleDto
+                .Select(r => new AlertRuleDTO
                 {
                     Id = r.Id,
                     Name = r.Name,
@@ -52,7 +54,7 @@ namespace MobileGwDataSync.API.Controllers
         /// Получить правило по ID
         /// </summary>
         [HttpGet("rules/{id}")]
-        public async Task<ActionResult<AlertRuleDto>> GetAlertRule(int id)
+        public async Task<ActionResult<AlertRuleDTO>> GetAlertRule(int id)
         {
             var rule = await _context.AlertRules.FindAsync(id);
 
@@ -61,7 +63,7 @@ namespace MobileGwDataSync.API.Controllers
                 return NotFound(new { message = $"Alert rule with ID {id} not found" });
             }
 
-            var dto = new AlertRuleDto
+            var dto = new AlertRuleDTO
             {
                 Id = rule.Id,
                 Name = rule.Name,
@@ -82,7 +84,7 @@ namespace MobileGwDataSync.API.Controllers
         /// Создать новое правило оповещения
         /// </summary>
         [HttpPost("rules")]
-        public async Task<ActionResult<AlertRuleDto>> CreateAlertRule([FromBody] CreateAlertRuleRequest request)
+        public async Task<ActionResult<AlertRuleDTO>> CreateAlertRule([FromBody] CreateAlertRuleRequest request)
         {
             // Проверка уникальности имени
             if (await _context.AlertRules.AnyAsync(r => r.Name == request.Name))
@@ -114,7 +116,7 @@ namespace MobileGwDataSync.API.Controllers
         /// Обновить правило оповещения
         /// </summary>
         [HttpPut("rules/{id}")]
-        public async Task<ActionResult<AlertRuleDto>> UpdateAlertRule(int id, [FromBody] UpdateAlertRuleRequest request)
+        public async Task<ActionResult<AlertRuleDTO>> UpdateAlertRule(int id, [FromBody] UpdateAlertRuleRequest request)
         {
             var rule = await _context.AlertRules.FindAsync(id);
 
@@ -182,7 +184,7 @@ namespace MobileGwDataSync.API.Controllers
         /// Включить/выключить правило
         /// </summary>
         [HttpPatch("rules/{id}/toggle")]
-        public async Task<ActionResult<AlertRuleDto>> ToggleAlertRule(int id)
+        public async Task<ActionResult<AlertRuleDTO>> ToggleAlertRule(int id)
         {
             var rule = await _context.AlertRules.FindAsync(id);
 
@@ -206,7 +208,7 @@ namespace MobileGwDataSync.API.Controllers
         /// Получить историю срабатываний оповещений
         /// </summary>
         [HttpGet("history")]
-        public async Task<ActionResult<IEnumerable<AlertHistoryDto>>> GetAlertHistory(
+        public async Task<ActionResult<IEnumerable<AlertHistoryDTO>>> GetAlertHistory(
             [FromQuery] int? ruleId = null,
             [FromQuery] DateTime? from = null,
             [FromQuery] DateTime? to = null,
@@ -231,7 +233,7 @@ namespace MobileGwDataSync.API.Controllers
                 .OrderByDescending(h => h.TriggeredAt)
                 .Take(limit)
                 .Include(h => h.Rule)
-                .Select(h => new AlertHistoryDto
+                .Select(h => new AlertHistoryDTO
                 {
                     Id = h.Id,
                     RuleId = h.RuleId,
@@ -319,9 +321,9 @@ namespace MobileGwDataSync.API.Controllers
             });
         }
 
-        private AlertRuleDto MapToDto(AlertRuleEntity entity)
+        private AlertRuleDTO MapToDto(AlertRuleEntity entity)
         {
-            return new AlertRuleDto
+            return new AlertRuleDTO
             {
                 Id = entity.Id,
                 Name = entity.Name,
@@ -335,61 +337,5 @@ namespace MobileGwDataSync.API.Controllers
                 UpdatedAt = entity.UpdatedAt
             };
         }
-    }
-
-    // DTOs
-    public class AlertRuleDto
-    {
-        public int Id { get; set; }
-        public string Name { get; set; } = string.Empty;
-        public string Type { get; set; } = string.Empty;
-        public string Condition { get; set; } = string.Empty;
-        public string Severity { get; set; } = string.Empty;
-        public List<string> Channels { get; set; } = new();
-        public int ThrottleMinutes { get; set; }
-        public bool IsEnabled { get; set; }
-        public DateTime CreatedAt { get; set; }
-        public DateTime? UpdatedAt { get; set; }
-    }
-
-    public class AlertHistoryDto
-    {
-        public int Id { get; set; }
-        public int RuleId { get; set; }
-        public string RuleName { get; set; } = string.Empty;
-        public string Severity { get; set; } = string.Empty;
-        public DateTime TriggeredAt { get; set; }
-        public string Message { get; set; } = string.Empty;
-        public List<string>? NotificationsSent { get; set; }
-        public bool IsAcknowledged { get; set; }
-        public DateTime? AcknowledgedAt { get; set; }
-        public string? AcknowledgedBy { get; set; }
-    }
-
-    public class CreateAlertRuleRequest
-    {
-        public string Name { get; set; } = string.Empty;
-        public string Type { get; set; } = string.Empty;
-        public string Condition { get; set; } = string.Empty;
-        public string Severity { get; set; } = "Information";
-        public List<string> Channels { get; set; } = new();
-        public int ThrottleMinutes { get; set; } = 5;
-        public bool IsEnabled { get; set; } = true;
-    }
-
-    public class UpdateAlertRuleRequest
-    {
-        public string? Name { get; set; }
-        public string? Type { get; set; }
-        public string? Condition { get; set; }
-        public string? Severity { get; set; }
-        public List<string>? Channels { get; set; }
-        public int? ThrottleMinutes { get; set; }
-        public bool? IsEnabled { get; set; }
-    }
-
-    public class AcknowledgeRequest
-    {
-        public string? AcknowledgedBy { get; set; }
     }
 }
