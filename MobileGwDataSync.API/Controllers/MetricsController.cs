@@ -1,4 +1,5 @@
 ﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using MobileGwDataSync.API.Models.Responses.Metrics;
 using MobileGwDataSync.API.Models.Responses.Sync;
 using MobileGwDataSync.Core.Interfaces;
@@ -14,13 +15,13 @@ namespace MobileGwDataSync.API.Controllers
     public class MetricsController : ControllerBase
     {
         private readonly ServiceDbContext _context;
-        private readonly IMetricsService _metricsService;
+        private readonly IMetricsService? _metricsService;
         private readonly ILogger<MetricsController> _logger;
 
         public MetricsController(
             ServiceDbContext context,
-            IMetricsService metricsService,
-            ILogger<MetricsController> logger)
+            ILogger<MetricsController> logger,
+            IMetricsService? metricsService = null)
         {
             _context = context;
             _metricsService = metricsService;
@@ -33,7 +34,7 @@ namespace MobileGwDataSync.API.Controllers
         [HttpGet("current")]
         public ActionResult<Dictionary<string, double>> GetCurrentMetrics()
         {
-            var metrics = _metricsService.GetCurrentMetrics();
+            var metrics = _metricsService?.GetCurrentMetrics() ?? new Dictionary<string, double>();
 
             // Добавляем системные метрики
             var process = Process.GetCurrentProcess();
@@ -73,7 +74,7 @@ namespace MobileGwDataSync.API.Controllers
                 .Where(r => r.StartTime >= from && r.StartTime <= to)
                 .ToListAsync();
 
-            var performanceDto = new PerformanceMetricsDTO
+            var performanceDTO = new PerformanceMetricsDTO
             {
                 Period = new { From = from.Value, To = to.Value },
                 SyncMetrics = new SyncMetricsDTO
@@ -101,7 +102,7 @@ namespace MobileGwDataSync.API.Controllers
                 )
             };
 
-            return Ok(performanceDto);
+            return Ok(performanceDTO);
         }
 
         /// <summary>
@@ -114,7 +115,7 @@ namespace MobileGwDataSync.API.Controllers
             var sb = new StringBuilder();
 
             // Метрики из сервиса
-            var currentMetrics = _metricsService.GetCurrentMetrics();
+            var currentMetrics = _metricsService?.GetCurrentMetrics() ?? new Dictionary<string, double>();
             foreach (var metric in currentMetrics)
             {
                 sb.AppendLine($"# TYPE {metric.Key} gauge");
