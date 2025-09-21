@@ -9,6 +9,7 @@ using MobileGwDataSync.Data.Context;
 using MobileGwDataSync.Data.Repositories;
 using MobileGwDataSync.Data.SqlServer;
 using MobileGwDataSync.Integration.OneC;
+using MobileGwDataSync.Monitoring.Metrics;
 using Quartz;
 using Quartz.Impl;
 using System.Text.Json.Serialization;
@@ -127,7 +128,6 @@ namespace MobileGwDataSync.API
             // Настройка Quartz
             builder.Services.AddQuartz(q =>
             {
-                q.UseMicrosoftDependencyInjectionJobFactory();
                 q.UseSimpleTypeLoader();
                 q.UseInMemoryStore();
                 q.UseDefaultThreadPool(tp =>
@@ -217,9 +217,9 @@ namespace MobileGwDataSync.API
             // Security headers
             app.Use(async (context, next) =>
             {
-                context.Response.Headers.Add("X-Content-Type-Options", "nosniff");
-                context.Response.Headers.Add("X-Frame-Options", "DENY");
-                context.Response.Headers.Add("X-XSS-Protection", "1; mode=block");
+                context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+                context.Response.Headers["X-Xss-Protection"] = "1; mode=block";
+                context.Response.Headers["X-Frame-Options"] = "DENY";
                 await next();
             });
 

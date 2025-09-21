@@ -6,4 +6,12 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <PackageReference Include="prometheus-net" Version="8.2.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\MobileGwDataSync.Core\MobileGwDataSync.Core.csproj" />
+  </ItemGroup>
+
 </Project>
