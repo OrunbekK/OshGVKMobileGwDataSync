@@ -362,3 +362,6 @@ MigrationBackup/
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
 /MobileGwDataSync.Host/mobilegw_sync_dev.db
+/MobileGwDataSync.API/appsettings.json
+/MobileGwDataSync.Host/appsettings.json
+/MobileGwDataSync.Host/appsettings.Development.json
