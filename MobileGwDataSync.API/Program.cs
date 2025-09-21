@@ -1,8 +1,9 @@
 using Asp.Versioning;
+using Asp.Versioning.ApiExplorer;
+using Microsoft.AspNetCore.Mvc.ApiExplorer;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi.Models;
-using MobileGwDataSync.API.Controllers;
 using MobileGwDataSync.Core.Interfaces;
 using MobileGwDataSync.Core.Jobs;
 using MobileGwDataSync.Core.Models.Configuration;
@@ -28,11 +29,11 @@ namespace MobileGwDataSync.API
         {
             var builder = WebApplication.CreateBuilder(args);
 
-            // Конфигурация
+            // Configuration
             var appSettings = builder.Configuration.Get<AppSettings>() ?? new AppSettings();
             builder.Services.AddSingleton(appSettings);
 
-            // Add services to the container.
+            // Add services to the container
             builder.Services.AddControllers()
                 .AddJsonOptions(options =>
                 {
@@ -51,18 +52,23 @@ namespace MobileGwDataSync.API
                     new HeaderApiVersionReader("X-Api-Version"),
                     new QueryStringApiVersionReader("api-version")
                 );
-            }).AddApiExplorer(options =>
+            })
+            .AddMvc() // Important for MVC versioning
+            .AddApiExplorer(options =>
             {
                 options.GroupNameFormat = "'v'VVV";
                 options.SubstituteApiVersionInUrl = true;
             });
+
+            // Configure Swagger
+            ConfigureSwagger(builder);
 
             // Rate Limiting
             builder.Services.AddRateLimiter(options =>
             {
                 options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 
-                // Глобальный лимит
+                // Global limiter
                 options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(
                     httpContext => RateLimitPartition.GetFixedWindowLimiter(
                         partitionKey: httpContext.User?.Identity?.Name ??
@@ -76,7 +82,7 @@ namespace MobileGwDataSync.API
                             Window = TimeSpan.FromMinutes(1)
                         }));
 
-                // Специальный лимит для тяжелых операций
+                // Special limiter for heavy operations
                 options.AddPolicy("HeavyOperation", httpContext =>
                     RateLimitPartition.GetFixedWindowLimiter(
                         partitionKey: httpContext.User?.Identity?.Name ??
@@ -114,55 +120,6 @@ namespace MobileGwDataSync.API
                 options.Level = CompressionLevel.SmallestSize;
             });
 
-            // Swagger/OpenAPI configuration
-            builder.Services.AddEndpointsApiExplorer();
-            builder.Services.AddSwaggerGen(options =>
-            {
-                options.SwaggerDoc("v1", new OpenApiInfo
-                {
-                    Title = "MobileGW Data Sync API",
-                    Version = "v1",
-                    Description = "API для управления синхронизацией данных между 1С и SQL Server",
-                    Contact = new OpenApiContact
-                    {
-                        Name = "SoftKO",
-                        Email = "softko@gmail.com"
-                    }
-                });
-
-                // Добавляем поддержку XML комментариев
-                var xmlFile = $"{System.Reflection.Assembly.GetExecutingAssembly().GetName().Name}.xml";
-                var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
-                if (File.Exists(xmlPath))
-                {
-                    options.IncludeXmlComments(xmlPath);
-                }
-
-                // Добавляем поддержку авторизации (если нужно)
-                options.AddSecurityDefinition("APIKey", new OpenApiSecurityScheme
-                {
-                    Description = "API key needed to access the endpoints. X-Api-Key: {key}",
-                    In = ParameterLocation.Header,
-                    Name = "X-Api-Key",
-                    Type = SecuritySchemeType.ApiKey
-                });
-
-                options.AddSecurityRequirement(new OpenApiSecurityRequirement
-                {
-                    {
-                        new OpenApiSecurityScheme
-                        {
-                            Reference = new OpenApiReference
-                            {
-                                Type = ReferenceType.SecurityScheme,
-                                Id = "ApiKey"
-                            }
-                        },
-                        Array.Empty<string>()
-                    }
-                });
-            });
-
             // Database contexts
             builder.Services.AddDbContext<ServiceDbContext>(options =>
                 options.UseSqlite(appSettings.ConnectionStrings.SQLite));
@@ -187,7 +144,7 @@ namespace MobileGwDataSync.API
                     new System.Net.Http.Headers.AuthenticationHeaderValue("Basic", authValue);
             });
 
-            // Регистрация сервисов
+            // Register services
             builder.Services.AddScoped<IDataSource, OneCHttpConnector>();
             builder.Services.AddScoped<IDataTarget, SqlServerDataTarget>();
             builder.Services.AddScoped<ISyncRunRepository, SyncRunRepository>();
@@ -196,19 +153,14 @@ namespace MobileGwDataSync.API
 
             // MetricsService registration based on configuration
             if (builder.Configuration.GetValue<bool>("Monitoring:Prometheus:Enabled", false))
-                // Метрики включены - регистрируем настоящую реализацию
                 builder.Services.AddSingleton<IMetricsService, MetricsService>();
             else
-                // Метрики выключены - регистрируем "пустышку"
                 builder.Services.AddSingleton<IMetricsService, NullMetricsService>();
 
             // Quartz configuration
             builder.Services.AddSingleton<ISchedulerFactory, StdSchedulerFactory>();
-
-            // Регистрация Job классов для DI
             builder.Services.AddTransient<DataSyncJob>();
 
-            // Настройка Quartz
             builder.Services.AddQuartz(q =>
             {
                 q.UseSimpleTypeLoader();
@@ -219,7 +171,6 @@ namespace MobileGwDataSync.API
                 });
             });
 
-            // Добавляем Quartz hosted service
             builder.Services.AddQuartzHostedService(options =>
             {
                 options.WaitForJobsToComplete = true;
@@ -227,10 +178,33 @@ namespace MobileGwDataSync.API
 
             // Health checks
             builder.Services.AddHealthChecks()
-                .AddDbContextCheck<ServiceDbContext>("sqlite")
-                .AddDbContextCheck<BusinessDbContext>("sqlserver");
+                .AddDbContextCheck<ServiceDbContext>("sqlite", tags: new[] { "db", "sqlite" })
+                .AddDbContextCheck<BusinessDbContext>("sqlserver", tags: new[] { "db", "sql" })
+                .AddCheck("memory", () =>
+                {
+                    var allocated = GC.GetTotalMemory(forceFullCollection: false);
+                    var data = new Dictionary<string, object>
+                    {
+                        ["AllocatedBytes"] = allocated,
+                        ["AllocatedMB"] = allocated / (1024 * 1024),
+                        ["Gen0Collections"] = GC.CollectionCount(0),
+                        ["Gen1Collections"] = GC.CollectionCount(1),
+                        ["Gen2Collections"] = GC.CollectionCount(2)
+                    };
 
-            // CORS (настройте под ваши требования)
+                    var status = allocated < 500_000_000
+                        ? Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Healthy
+                        : allocated < 1_000_000_000
+                            ? Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Degraded
+                            : Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Unhealthy;
+
+                    return Task.FromResult(new Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult(
+                        status,
+                        $"Memory usage: {allocated / (1024 * 1024)} MB",
+                        data: data));
+                }, tags: new[] { "system" });
+
+            // CORS
             builder.Services.AddCors(options =>
             {
                 options.AddPolicy("AllowAll", policy =>
@@ -240,13 +214,12 @@ namespace MobileGwDataSync.API
                           .AllowAnyHeader();
                 });
 
-                // Более строгая политика для production
                 options.AddPolicy("Production", policy =>
                 {
-                    policy.WithOrigins("http://localhost:3000", "https://yourdomain.com")
-                          .AllowAnyMethod()
-                          .AllowAnyHeader()
-                          .AllowCredentials();
+                    //policy.WithOrigins("http://localhost:3000", "https://yourdomain.com")
+                    //      .AllowAnyMethod()
+                    //      .AllowAnyHeader()
+                    //      .AllowCredentials();
                 });
             });
 
@@ -266,7 +239,6 @@ namespace MobileGwDataSync.API
                     Console.WriteLine($"Error applying migrations: {ex.Message}");
                 }
 
-                // Проверяем подключение к SQL Server
                 var businessDbContext = scope.ServiceProvider.GetRequiredService<BusinessDbContext>();
                 try
                 {
@@ -281,21 +253,13 @@ namespace MobileGwDataSync.API
                 }
             }
 
-            // Configure the HTTP request pipeline.
-            if (app.Environment.IsDevelopment())
-            {
-                app.UseSwagger();
-                app.UseSwaggerUI(options =>
-                {
-                    options.SwaggerEndpoint("/swagger/v1/swagger.json", "MobileGW Data Sync API v1");
-                    options.RoutePrefix = "swagger";
-                    options.DefaultModelsExpandDepth(2);
-                    options.DefaultModelRendering(Swashbuckle.AspNetCore.SwaggerUI.ModelRendering.Model);
-                    options.DocExpansion(Swashbuckle.AspNetCore.SwaggerUI.DocExpansion.None);
-                    options.EnableDeepLinking();
-                    options.DisplayOperationId();
-                });
-            }
+            // Middleware Pipeline Configuration
+            app.UseResponseCompression();
+            app.UseResponseCaching();
+            app.UseRateLimiter();
+
+            // Configure Swagger with versioning
+            ConfigureSwaggerUI(app);
 
             // Security headers
             app.Use(async (context, next) =>
@@ -345,7 +309,8 @@ namespace MobileGwDataSync.API
                             error = "An error occurred while processing your request",
                             message = app.Environment.IsDevelopment()
                                 ? exceptionHandlerFeature.Error.Message
-                                : "Internal server error"
+                                : "Internal server error",
+                            traceId = context.TraceIdentifier
                         });
                     }
                 });
@@ -364,9 +329,7 @@ namespace MobileGwDataSync.API
             }
 
             app.UseAuthorization();
-
             app.UseMetricServer();
-
             app.MapControllers();
 
             // Health check endpoints
@@ -380,18 +343,17 @@ namespace MobileGwDataSync.API
                 Predicate = _ => false
             });
 
-            // Prometheus metrics endpoint (если используется)
+            // Custom metrics endpoint (alternative to UseMetricServer)
             app.MapGet("/metrics", async context =>
             {
-                var metricsController = context.RequestServices.GetRequiredService<MetricsController>();
-                // Здесь можно вызвать метод GetPrometheusMetrics
-                await context.Response.WriteAsync("# Metrics endpoint");
+                await context.Response.WriteAsync("# Custom metrics endpoint\n");
+                // Here you can add custom metrics output
             });
 
-            // Запускаем динамическую загрузку задач из БД в Quartz
+            // Initialize Quartz jobs from database
             Task.Run(async () =>
             {
-                await Task.Delay(5000); // Ждем инициализации
+                await Task.Delay(5000); // Wait for initialization
                 using var scope = app.Services.CreateScope();
                 var scheduler = scope.ServiceProvider.GetRequiredService<ISchedulerFactory>();
                 var context = scope.ServiceProvider.GetRequiredService<ServiceDbContext>();
@@ -429,13 +391,202 @@ namespace MobileGwDataSync.API
                 }
             });
 
-            // Информация о запуске
+            // Startup information
             var logger = app.Services.GetRequiredService<ILogger<Program>>();
             logger.LogInformation("MobileGW Data Sync API started");
             logger.LogInformation("Environment: {Environment}", app.Environment.EnvironmentName);
             logger.LogInformation("URLs: {Urls}", string.Join(", ", app.Urls));
 
             app.Run();
+        }
+
+        private static void ConfigureSwagger(WebApplicationBuilder builder)
+        {
+            builder.Services.AddEndpointsApiExplorer();
+
+            // Configure SwaggerGen with versioning support
+            builder.Services.AddSwaggerGen(options =>
+            {
+                // Get API version description provider from services
+                var provider = builder.Services.BuildServiceProvider()
+                    .GetService<IApiVersionDescriptionProvider>();
+
+                // Add a swagger document for each discovered API version
+                if (provider != null)
+                {
+                    foreach (var description in provider.ApiVersionDescriptions)
+                    {
+                        options.SwaggerDoc(description.GroupName, CreateApiInfo(description));
+                    }
+                }
+                else
+                {
+                    // Fallback if versioning provider is not available
+                    options.SwaggerDoc("v1", new OpenApiInfo
+                    {
+                        Title = "MobileGW Data Sync API",
+                        Version = "v1",
+                        Description = "API for managing data synchronization between 1C and SQL Server",
+                        Contact = new OpenApiContact
+                        {
+                            Name = "SoftKO",
+                            Email = "softko@gmail.com"
+                        }
+                    });
+                }
+
+                // Add XML comments if available
+                var xmlFile = $"{System.Reflection.Assembly.GetExecutingAssembly().GetName().Name}.xml";
+                var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
+                if (File.Exists(xmlPath))
+                {
+                    options.IncludeXmlComments(xmlPath);
+                }
+
+                // Add security definition
+                options.AddSecurityDefinition("ApiKey", new OpenApiSecurityScheme
+                {
+                    Description = "API key needed to access the endpoints. X-Api-Key: {key}",
+                    In = ParameterLocation.Header,
+                    Name = "X-Api-Key",
+                    Type = SecuritySchemeType.ApiKey,
+                    Scheme = "ApiKey"
+                });
+
+                options.AddSecurityRequirement(new OpenApiSecurityRequirement
+                {
+                    {
+                        new OpenApiSecurityScheme
+                        {
+                            Reference = new OpenApiReference
+                            {
+                                Type = ReferenceType.SecurityScheme,
+                                Id = "ApiKey"
+                            }
+                        },
+                        Array.Empty<string>()
+                    }
+                });
+
+                // Custom operation filter to handle versioning in URLs
+                options.OperationFilter<SwaggerDefaultValues>();
+            });
+        }
+
+        private static void ConfigureSwaggerUI(WebApplication app)
+        {
+            // Enable Swagger for all environments (you can change this)
+            app.UseSwagger();
+
+            app.UseSwaggerUI(options =>
+            {
+                // Build swagger endpoints for each API version
+                var provider = app.Services.GetService<IApiVersionDescriptionProvider>();
+
+                if (provider != null)
+                {
+                    foreach (var description in provider.ApiVersionDescriptions)
+                    {
+                        options.SwaggerEndpoint(
+                            $"/swagger/{description.GroupName}/swagger.json",
+                            $"MobileGW Data Sync API {description.GroupName.ToUpperInvariant()}");
+                    }
+                }
+                else
+                {
+                    // Fallback endpoint
+                    options.SwaggerEndpoint("/swagger/v1/swagger.json", "MobileGW Data Sync API v1");
+                }
+
+                options.RoutePrefix = "swagger";
+                options.DefaultModelsExpandDepth(2);
+                options.DefaultModelRendering(Swashbuckle.AspNetCore.SwaggerUI.ModelRendering.Model);
+                options.DocExpansion(Swashbuckle.AspNetCore.SwaggerUI.DocExpansion.None);
+                options.EnableDeepLinking();
+                options.DisplayOperationId();
+                options.ShowExtensions();
+                options.EnableFilter();
+                options.EnableTryItOutByDefault();
+            });
+        }
+
+        private static OpenApiInfo CreateApiInfo(Asp.Versioning.ApiExplorer.ApiVersionDescription description)
+        {
+            var info = new OpenApiInfo
+            {
+                Title = "MobileGW Data Sync API",
+                Version = description.ApiVersion.ToString(),
+                Description = "API for managing data synchronization between 1C and SQL Server",
+                Contact = new OpenApiContact
+                {
+                    Name = "SoftKO",
+                    Email = "softko@gmail.com"
+                },
+                License = new OpenApiLicense
+                {
+                    Name = "MIT",
+                    Url = new Uri("https://opensource.org/licenses/MIT")
+                }
+            };
+
+            if (description.IsDeprecated)
+            {
+                info.Description += " **This API version has been deprecated.**";
+            }
+
+            return info;
+        }
+    }
+
+    /// <summary>
+    /// Configures the Swagger generation options to support API versioning
+    /// </summary>
+    public class SwaggerDefaultValues : Swashbuckle.AspNetCore.SwaggerGen.IOperationFilter
+    {
+        public void Apply(OpenApiOperation operation, Swashbuckle.AspNetCore.SwaggerGen.OperationFilterContext context)
+        {
+            var apiDescription = context.ApiDescription;
+
+            operation.Deprecated |= apiDescription.IsDeprecated();
+
+            foreach (var responseType in context.ApiDescription.SupportedResponseTypes)
+            {
+                var responseKey = responseType.IsDefaultResponse ? "default" : responseType.StatusCode.ToString();
+                var response = operation.Responses[responseKey];
+
+                foreach (var contentType in response.Content.Keys)
+                {
+                    if (responseType.ApiResponseFormats.All(x => x.MediaType != contentType))
+                    {
+                        response.Content.Remove(contentType);
+                    }
+                }
+            }
+
+            if (operation.Parameters == null)
+            {
+                return;
+            }
+
+            foreach (var parameter in operation.Parameters)
+            {
+                var description = apiDescription.ParameterDescriptions.First(p => p.Name == parameter.Name);
+
+                parameter.Description ??= description.ModelMetadata?.Description;
+
+                if (parameter.Schema.Default == null &&
+                    description.DefaultValue != null &&
+                    description.DefaultValue is not DBNull &&
+                    description.ModelMetadata is { } modelMetadata)
+                {
+                    var json = System.Text.Json.JsonSerializer.Serialize(
+                        description.DefaultValue,
+                        modelMetadata.ModelType);
+                    parameter.Schema.Default = Microsoft.OpenApi.Any.OpenApiAnyFactory.CreateFromJson(json);
+                }
+
+                parameter.Required |= description.IsRequired;
+            }
         }
     }
 }
