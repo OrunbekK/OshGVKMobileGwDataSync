@@ -1,4 +1,4 @@
-﻿using MobileGwDataSync.Core.Models.DTO;
+﻿using MobileGwDataSync.API.Models.Responses.Metrics;
 
 namespace MobileGwDataSync.API.Models.Responses.Sync
 {

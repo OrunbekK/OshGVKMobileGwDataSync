@@ -358,7 +358,7 @@ namespace MobileGwDataSync.API.Controllers
         {
             var scheduler = await _schedulerFactory.GetScheduler();
 
-            var job = JobBuilder.Create<Jobs.DataSyncJob>()
+            var job = JobBuilder.Create<Core.Jobs.DataSyncJob>()
                 .WithIdentity(jobEntity.Id)
                 .UsingJobData("JobId", jobEntity.Id)
                 .Build();

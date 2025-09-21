@@ -236,13 +236,13 @@ namespace MobileGwDataSync.API.Controllers
                 TotalRecordsProcessed = runs.Sum(r => r.RecordsProcessed),
                 AverageDuration = runs
                     .Where(r => r.EndTime.HasValue)
-                    .Select(r => (r.EndTime.Value - r.StartTime).TotalSeconds)
+                    .Select(r => (r.EndTime!.Value - r.StartTime).TotalSeconds)
                     .DefaultIfEmpty(0)
                     .Average(),
                 SuccessRate = runs.Count > 0
                     ? (double)runs.Count(r => r.Status == "Completed") / runs.Count * 100
                     : 0,
-                JobStatistics = await GetJobStatistics(from.Value, to.Value)
+                JobStatistics = await GetJobStatistics(from!.Value, to!.Value)
             };
 
             return Ok(statistics);
@@ -291,7 +291,7 @@ namespace MobileGwDataSync.API.Controllers
                     TotalRecords = g.Sum(r => r.RecordsProcessed),
                     AverageDuration = g
                         .Where(r => r.EndTime.HasValue)
-                        .Select(r => (r.EndTime.Value - r.StartTime).TotalSeconds)
+                        .Select(r => (r.EndTime!.Value - r.StartTime).TotalSeconds)
                         .DefaultIfEmpty(0)
                         .Average()
                 })

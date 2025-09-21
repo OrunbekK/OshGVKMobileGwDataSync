@@ -86,7 +86,7 @@ namespace MobileGwDataSync.API.Controllers
                     TotalRecordsProcessed = runs.Sum(r => r.RecordsProcessed),
                     AverageDurationSeconds = runs
                         .Where(r => r.EndTime.HasValue)
-                        .Select(r => (r.EndTime.Value - r.StartTime).TotalSeconds)
+                        .Select(r => (r.EndTime!.Value - r.StartTime!).TotalSeconds)
                         .DefaultIfEmpty(0)
                         .Average()
                 },
@@ -176,7 +176,7 @@ namespace MobileGwDataSync.API.Controllers
                 TotalRecords = runs.Sum(r => r.RecordsProcessed),
                 AverageDuration = runs
                     .Where(r => r.EndTime.HasValue)
-                    .Select(r => (r.EndTime.Value - r.StartTime).TotalSeconds)
+                    .Select(r => (r.EndTime!.Value - r.StartTime!).TotalSeconds)
                     .DefaultIfEmpty(0)
                     .Average(),
                 Throughput = CalculateThroughput(runs),
@@ -212,7 +212,7 @@ namespace MobileGwDataSync.API.Controllers
                     Records = g.Sum(r => r.RecordsProcessed),
                     AverageDuration = g
                         .Where(r => r.EndTime.HasValue)
-                        .Select(r => (r.EndTime.Value - r.StartTime).TotalSeconds)
+                        .Select(r => (r.EndTime!.Value - r.StartTime).TotalSeconds)
                         .DefaultIfEmpty(0)
                         .Average()
                 })
