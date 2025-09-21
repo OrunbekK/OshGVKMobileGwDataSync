@@ -30,8 +30,6 @@
     <PackageReference Include="prometheus-net.AspNetCore" Version="8.2.1" />
 
     <!-- Scheduler -->
-    <PackageReference Include="Quartz" Version="3.15.0" />
-    <PackageReference Include="Quartz.Extensions.Hosting" Version="3.15.0" />
 
     <!-- Swagger -->
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />

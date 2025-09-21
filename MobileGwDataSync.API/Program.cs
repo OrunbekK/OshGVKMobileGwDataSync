@@ -5,7 +5,6 @@ using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi.Models;
 using MobileGwDataSync.Core.Interfaces;
-using MobileGwDataSync.Core.Jobs;
 using MobileGwDataSync.Core.Models.Configuration;
 using MobileGwDataSync.Core.Services;
 using MobileGwDataSync.Data.Context;
@@ -15,8 +14,6 @@ using MobileGwDataSync.Data.SqlServer;
 using MobileGwDataSync.Integration.OneC;
 using MobileGwDataSync.Monitoring.Metrics;
 using Prometheus;
-using Quartz;
-using Quartz.Impl;
 using Serilog;
 using Serilog.Events;
 using System.IO.Compression;
@@ -180,25 +177,6 @@ namespace MobileGwDataSync.API
                 else
                     builder.Services.AddSingleton<IMetricsService, NullMetricsService>();
 
-                // Quartz configuration
-                builder.Services.AddSingleton<ISchedulerFactory, StdSchedulerFactory>();
-                builder.Services.AddTransient<DataSyncJob>();
-
-                builder.Services.AddQuartz(q =>
-                {
-                    q.UseSimpleTypeLoader();
-                    q.UseInMemoryStore();
-                    q.UseDefaultThreadPool(tp =>
-                    {
-                        tp.MaxConcurrency = 10;
-                    });
-                });
-
-                builder.Services.AddQuartzHostedService(options =>
-                {
-                    options.WaitForJobsToComplete = true;
-                });
-
                 // Health checks
                 builder.Services.AddHealthChecks()
                     .AddDbContextCheck<ServiceDbContext>("sqlite", tags: new[] { "db", "sqlite" })
@@ -256,9 +234,6 @@ namespace MobileGwDataSync.API
 
                 // Configure endpoints
                 ConfigureEndpoints(app);
-
-                // Initialize Quartz jobs
-                _ = InitializeQuartzJobsAsync(app);
 
                 // Log startup information
                 Log.Information("MobileGW Data Sync API started successfully");
@@ -413,46 +388,6 @@ namespace MobileGwDataSync.API
             {
                 Predicate = _ => false
             });
-        }
-
-        private static async Task InitializeQuartzJobsAsync(WebApplication app)
-        {
-            await Task.Delay(5000); // Wait for initialization
-
-            using var scope = app.Services.CreateScope();
-            var scheduler = scope.ServiceProvider.GetRequiredService<ISchedulerFactory>();
-            var context = scope.ServiceProvider.GetRequiredService<ServiceDbContext>();
-
-            try
-            {
-                var jobs = await context.SyncJobs.Where(j => j.IsEnabled).ToListAsync();
-                var sched = await scheduler.GetScheduler();
-
-                foreach (var jobEntity in jobs)
-                {
-                    var job = JobBuilder.Create<DataSyncJob>()
-                        .WithIdentity(jobEntity.Id)
-                        .UsingJobData("JobId", jobEntity.Id)
-                        .Build();
-
-                    var trigger = TriggerBuilder.Create()
-                        .WithIdentity($"{jobEntity.Id}-trigger")
-                        .WithCronSchedule(jobEntity.CronExpression)
-                        .StartNow()
-                        .Build();
-
-                    await sched.ScheduleJob(job, trigger);
-                    Log.Information("Scheduled job {JobId} with cron {Cron}",
-                        jobEntity.Id, jobEntity.CronExpression);
-                }
-
-                await sched.Start();
-                Log.Information("Quartz scheduler started with {Count} jobs", jobs.Count);
-            }
-            catch (Exception ex)
-            {
-                Log.Error(ex, "Failed to initialize Quartz jobs");
-            }
         }
 
         private static void ConfigureSwagger(WebApplicationBuilder builder)
