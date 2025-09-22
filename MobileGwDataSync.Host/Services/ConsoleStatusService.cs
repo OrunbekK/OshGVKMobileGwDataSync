@@ -60,19 +60,33 @@ namespace MobileGwDataSync.Host.Services
                 foreach (var jobKey in jobKeys)
                 {
                     var jobDetail = await scheduler.GetJobDetail(jobKey);
+
+                    // Получаем триггеры именно для этой задачи
                     var triggers = await scheduler.GetTriggersOfJob(jobKey);
                     var trigger = triggers.FirstOrDefault();
 
                     var isRunning = executingJobs.Any(j => j.JobDetail.Key.Equals(jobKey));
 
+                    // Получаем имя из JobDataMap
+                    var jobName = jobDetail?.JobDataMap.GetString("JobName") ?? jobKey.Name;
+
                     var status = new JobStatusInfo
                     {
                         JobId = jobKey.Name,
-                        JobName = jobDetail?.JobDataMap.GetString("JobName") ?? jobKey.Name,
+                        JobName = jobName,
                         IsRunning = isRunning,
                         NextFireTime = trigger?.GetNextFireTimeUtc()?.LocalDateTime,
                         PreviousFireTime = trigger?.GetPreviousFireTimeUtc()?.LocalDateTime
                     };
+
+                    // Логируем для отладки
+                    if (trigger != null)
+                    {
+                        _logger.LogDebug("Job {JobId}: Next fire time: {NextFire}, Previous: {PrevFire}",
+                            jobKey.Name,
+                            status.NextFireTime,
+                            status.PreviousFireTime);
+                    }
 
                     // Сохраняем счетчик выполнений если он был
                     if (_jobStatuses.TryGetValue(jobKey.Name, out var oldStatus))
@@ -80,15 +94,19 @@ namespace MobileGwDataSync.Host.Services
                         status.ExecutionCount = oldStatus.ExecutionCount;
 
                         // Увеличиваем счетчик если задача завершилась
-                        if (oldStatus.IsRunning && !status.IsRunning)
+                        if (oldStatus.IsRunning && !status.IsRunning &&
+                            oldStatus.LastExecutionTime != null)
                         {
                             status.ExecutionCount++;
-                            status.LastExecutionTime = DateTime.Now;
                         }
-                        else
-                        {
-                            status.LastExecutionTime = oldStatus.LastExecutionTime;
-                        }
+
+                        status.LastExecutionTime = oldStatus.LastExecutionTime;
+                    }
+
+                    // Обновляем LastExecutionTime если задача только что запустилась
+                    if (!oldStatus?.IsRunning ?? false && status.IsRunning)
+                    {
+                        status.LastExecutionTime = DateTime.Now;
                     }
 
                     newStatuses[jobKey.Name] = status;
