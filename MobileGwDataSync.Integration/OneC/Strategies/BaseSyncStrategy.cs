@@ -30,7 +30,5 @@ namespace MobileGwDataSync.Integration.OneC.Strategies
 
         public abstract DataTableDTO ParseResponse(string jsonResponse);
         public abstract string GetTargetProcedure();
-        public abstract DataTable CreateTVP();
-        public abstract void PopulateTVP(DataTable table, DataTableDTO data);
     }
 }

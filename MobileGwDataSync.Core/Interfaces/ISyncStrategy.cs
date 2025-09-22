@@ -10,7 +10,5 @@ namespace MobileGwDataSync.Core.Interfaces
         Task<DataTableDTO> FetchDataAsync(HttpClient httpClient, CancellationToken cancellationToken);
         DataTableDTO ParseResponse(string jsonResponse);
         string GetTargetProcedure();
-        DataTable CreateTVP();
-        void PopulateTVP(DataTable table, DataTableDTO data);
     }
 }

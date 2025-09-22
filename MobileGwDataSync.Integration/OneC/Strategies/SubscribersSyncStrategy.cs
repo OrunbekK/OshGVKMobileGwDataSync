@@ -52,36 +52,5 @@ namespace MobileGwDataSync.Integration.OneC.Strategies
 
             return dataTable;
         }
-
-        public override DataTable CreateTVP()
-        {
-            var table = new DataTable();
-            table.Columns.Add("Account", typeof(string));
-            table.Columns.Add("Subscriber", typeof(string));
-            table.Columns.Add("Address", typeof(string));
-            table.Columns.Add("Balance", typeof(decimal));
-            table.Columns.Add("Type", typeof(byte));
-            table.Columns.Add("State", typeof(string));
-            table.Columns.Add("ControllerId", typeof(string));
-            table.Columns.Add("RouteId", typeof(string));
-            return table;
-        }
-
-        public override void PopulateTVP(DataTable table, DataTableDTO data)
-        {
-            foreach (var row in data.Rows)
-            {
-                var dataRow = table.NewRow();
-                dataRow["Account"] = row.GetValueOrDefault("Account", string.Empty);
-                dataRow["Subscriber"] = row.GetValueOrDefault("Subscriber", string.Empty);
-                dataRow["Address"] = row.GetValueOrDefault("Address", string.Empty);
-                dataRow["Balance"] = Convert.ToDecimal(row.GetValueOrDefault("Balance", 0m));
-                dataRow["Type"] = Convert.ToByte(row.GetValueOrDefault("Type", 0));
-                dataRow["State"] = row.GetValueOrDefault("State", string.Empty);
-                dataRow["ControllerId"] = row.GetValueOrDefault("ControllerId", string.Empty);
-                dataRow["RouteId"] = row.GetValueOrDefault("RouteId", string.Empty);
-                table.Rows.Add(dataRow);
-            }
-        }
     }
 }
