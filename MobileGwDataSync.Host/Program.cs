@@ -111,6 +111,7 @@ namespace MobileGwDataSync.Host
             // Repositories
             services.AddScoped<ISyncRunRepository, SyncRunRepository>();
             services.AddScoped<ISyncJobRepository, SyncJobRepository>();
+            services.AddScoped<IDataSource, OneCHttpConnector>();
 
             // Core services with strategies
             services.AddScoped<SubscribersSyncStrategy>();
