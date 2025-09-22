@@ -365,3 +365,4 @@ FodyWeavers.xsd
 /MobileGwDataSync.API/appsettings.json
 /MobileGwDataSync.Host/appsettings.json
 /MobileGwDataSync.Host/appsettings.Development.json
+/shared/mobilegw_sync.db-wal
