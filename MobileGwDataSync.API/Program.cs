@@ -1,10 +1,14 @@
 using Asp.Versioning;
 using Asp.Versioning.ApiExplorer;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Mvc.ApiExplorer;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using MobileGwDataSync.API.Middleware;
 using MobileGwDataSync.API.Security;
+using MobileGwDataSync.API.Services;
 using MobileGwDataSync.Core.Interfaces;
 using MobileGwDataSync.Core.Models.Configuration;
 using MobileGwDataSync.Core.Services;
@@ -19,6 +23,7 @@ using Prometheus;
 using Serilog;
 using Serilog.Events;
 using System.IO.Compression;
+using System.Text;
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 
@@ -213,13 +218,85 @@ namespace MobileGwDataSync.API
 
                 builder.Services.AddHttpClient();
 
-                builder.Services.AddAuthentication(Security.APIKeyAuthenticationOptions.DefaultScheme)
-                    .AddScheme<Security.APIKeyAuthenticationOptions,
+                builder.Services.AddAuthentication(options =>
+                {
+                    // Комбинированная аутентификация: API Key + JWT
+                    options.DefaultScheme = "CompositeAuth";
+                    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+                })
+                .AddScheme<Security.APIKeyAuthenticationOptions,
                     Security.APIKeyAuthenticationHandler>(
                     Security.APIKeyAuthenticationOptions.DefaultScheme,
-                    options => { options.HeaderName = "X-Api-Key"; });
+                    options => { options.HeaderName = "X-Api-Key"; })
+                .AddJwtBearer(JwtBearerDefaults.AuthenticationScheme, options =>
+                {
+                    var jwtSecret = builder.Configuration["JWT:SecretKey"];
+                    if (string.IsNullOrEmpty(jwtSecret))
+                    {
+                        throw new InvalidOperationException("JWT:SecretKey not configured");
+                    }
 
-                builder.Services.AddScoped<MobileGwDataSync.API.Commands.APIKeyManager>();
+                    options.TokenValidationParameters = new TokenValidationParameters
+                    {
+                        ValidateIssuer = true,
+                        ValidateAudience = true,
+                        ValidateLifetime = true,
+                        ValidateIssuerSigningKey = true,
+                        ValidIssuer = builder.Configuration["JWT:Issuer"] ?? "MobileGwSync",
+                        ValidAudience = builder.Configuration["JWT:Audience"] ?? "Dashboard",
+                        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret)),
+                        ClockSkew = TimeSpan.Zero
+                    };
+
+                    options.Events = new JwtBearerEvents
+                    {
+                        OnAuthenticationFailed = context =>
+                        {
+                            var logger = context.HttpContext.RequestServices.GetRequiredService<ILogger<Program>>();
+                            logger.LogWarning("JWT authentication failed: {Error}", context.Exception?.Message);
+                            return Task.CompletedTask;
+                        },
+                        OnTokenValidated = context =>
+                        {
+                            var logger = context.HttpContext.RequestServices.GetRequiredService<ILogger<Program>>();
+                            logger.LogDebug("JWT token validated for user: {User}",
+                                context.Principal?.Identity?.Name);
+                            return Task.CompletedTask;
+                        }
+                    };
+                })
+                .AddPolicyScheme("CompositeAuth", "Composite", options =>
+                {
+                    options.ForwardDefaultSelector = context =>
+                    {
+                        // Если есть Bearer token - используем JWT
+                        var authHeader = context.Request.Headers["Authorization"].FirstOrDefault();
+                        if (!string.IsNullOrEmpty(authHeader) && authHeader.StartsWith("Bearer "))
+                        {
+                            return JwtBearerDefaults.AuthenticationScheme;
+                        }
+
+                        // Иначе используем API Key
+                        return Security.APIKeyAuthenticationOptions.DefaultScheme;
+                    };
+                });
+
+                builder.Services.AddScoped<Commands.APIKeyManager>();
+
+                builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
+
+                // Authorization policies
+                builder.Services.AddAuthorization(options =>
+                {
+                    options.AddPolicy("DashboardUser", policy =>
+                        policy.RequireRole("Admin", "Operator", "Viewer"));
+
+                    options.AddPolicy("DashboardAdmin", policy =>
+                        policy.RequireRole("Admin"));
+
+                    options.AddPolicy("APIKeyRequired", policy =>
+                        policy.AddAuthenticationSchemes(Security.APIKeyAuthenticationOptions.DefaultScheme).RequireAuthenticatedUser());
+                });
 
                 // MetricsService registration
                 if (builder.Configuration.GetValue<bool>("Monitoring:Prometheus:Enabled", false))
@@ -358,6 +435,8 @@ namespace MobileGwDataSync.API
             app.UseStaticFiles();
 
             app.UseMiddleware<APIIPRestrictionMiddleware>();
+
+            app.UseMiddleware<DashboardAuthMiddleware>();
 
             app.UseMiddleware<Middleware.MetricsMiddleware>();
 

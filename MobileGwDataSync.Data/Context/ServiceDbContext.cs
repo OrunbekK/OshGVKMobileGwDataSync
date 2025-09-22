@@ -21,6 +21,8 @@ namespace MobileGwDataSync.Data.Context
 
         public DbSet<APIKeyEntity> APIKeys { get; set; } = null!;
 
+        public DbSet<DashboardUserEntity> DashboardUsers { get; set; } = null!;
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
