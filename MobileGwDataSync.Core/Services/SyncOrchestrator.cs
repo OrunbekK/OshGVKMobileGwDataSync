@@ -43,35 +43,30 @@ namespace MobileGwDataSync.Core.Services
 
             try
             {
-                // Получаем настройки задачи через интерфейс
+                // Получаем настройки задачи
                 var job = await _jobRepository.GetJobAsync(jobId, cancellationToken);
-
                 if (job == null)
                 {
                     throw new SyncException($"Job {jobId} not found in database");
                 }
 
-                var oneCEndpoint = job.OneCEndpoint;
-
-                if (string.IsNullOrEmpty(oneCEndpoint))
+                if (string.IsNullOrEmpty(job.OneCEndpoint))
                 {
                     throw new SyncException($"OneCEndpoint not configured for job {jobId}");
                 }
 
-                _logger.LogInformation("Using endpoint from job configuration: {Endpoint}", oneCEndpoint);
+                _logger.LogInformation("Job type: {JobType}, Endpoint: {Endpoint}, Target: {Target}",
+                    job.JobType, job.OneCEndpoint, job.TargetProcedure);
 
                 // Создаем запись о запуске
                 syncRun = await _repository.CreateRunAsync(jobId, cancellationToken);
                 var runId = syncRun.Id;
-
-                _logger.LogInformation("Created sync run with ID: {RunId}", runId);
 
                 // Шаг 1: Инициализация
                 await LogStepAsync(runId, StepNames.Initialize, async () =>
                 {
                     _logger.LogInformation("Initializing sync process...");
 
-                    // Тестируем соединения
                     var sourceTest = await _dataSource.TestConnectionAsync(cancellationToken);
                     if (!sourceTest)
                         throw new DataSourceException("Failed to connect to data source");
@@ -83,17 +78,19 @@ namespace MobileGwDataSync.Core.Services
                     return "Connections established";
                 }, cancellationToken);
 
-                // Шаг 2: Получение данных из 1С
+                // Шаг 2: Получение данных
                 DataTableDTO? fetchedData = null;
                 await LogStepAsync(runId, StepNames.FetchData, async () =>
                 {
                     _logger.LogInformation("Fetching data from {Source} using endpoint: {Endpoint}",
-                       _dataSource.SourceName, oneCEndpoint);
+                       _dataSource.SourceName, job.OneCEndpoint);
 
-                    // Используем endpoint из настроек задачи
+                    // Передаем параметры включая тип задачи и endpoint
                     var parameters = new Dictionary<string, string>
                     {
-                        ["endpoint"] = oneCEndpoint
+                        ["endpoint"] = job.OneCEndpoint,
+                        ["jobType"] = job.JobType.ToString(),
+                        ["targetProcedure"] = job.TargetProcedure ?? string.Empty
                     };
 
                     fetchedData = await _dataSource.FetchDataAsync(parameters, cancellationToken);
@@ -111,28 +108,45 @@ namespace MobileGwDataSync.Core.Services
                     throw new SyncException("No data received from source");
                 }
 
-                // Обновляем количество полученных записей
                 syncRun.RecordsFetched = fetchedData.TotalRows;
                 await _repository.UpdateRunAsync(syncRun, cancellationToken);
 
-                // Шаг 3: Валидация данных
+                // Шаг 3: Валидация (адаптивная в зависимости от типа)
                 await LogStepAsync(runId, StepNames.ValidateData, async () =>
                 {
                     _logger.LogInformation("Validating {Count} records...", fetchedData.TotalRows);
 
-                    // Проверяем обязательные поля
-                    var invalidRows = fetchedData.Rows
-                        .Where(r => string.IsNullOrEmpty(r.GetValueOrDefault("Account", string.Empty)?.ToString()))
-                        .ToList();
-
-                    if (invalidRows.Any())
+                    // Валидация зависит от типа данных
+                    if (job.JobType == SyncJobType.Subscribers)
                     {
-                        _logger.LogWarning("Found {Count} invalid rows (missing Account)", invalidRows.Count);
+                        var invalidRows = fetchedData.Rows
+                            .Where(r => string.IsNullOrEmpty(r.GetValueOrDefault("Account", string.Empty)?.ToString()))
+                            .ToList();
 
-                        // Удаляем невалидные строки
                         foreach (var row in invalidRows)
                         {
                             fetchedData.Rows.Remove(row);
+                        }
+
+                        if (invalidRows.Any())
+                        {
+                            _logger.LogWarning("Removed {Count} invalid subscriber rows", invalidRows.Count);
+                        }
+                    }
+                    else if (job.JobType == SyncJobType.Controllers)
+                    {
+                        var invalidRows = fetchedData.Rows
+                            .Where(r => r.GetValueOrDefault("UID", Guid.Empty).Equals(Guid.Empty))
+                            .ToList();
+
+                        foreach (var row in invalidRows)
+                        {
+                            fetchedData.Rows.Remove(row);
+                        }
+
+                        if (invalidRows.Any())
+                        {
+                            _logger.LogWarning("Removed {Count} invalid controller rows", invalidRows.Count);
                         }
                     }
 
@@ -140,10 +154,14 @@ namespace MobileGwDataSync.Core.Services
                     return $"Validated {fetchedData.TotalRows} records";
                 }, cancellationToken);
 
-                // Шаг 4: Сохранение данных
+                // Шаг 4: Сохранение данных с учетом типа
                 await LogStepAsync(runId, StepNames.TransferData, async () =>
                 {
-                    _logger.LogInformation("Transferring data to {Target}...", _dataTarget.TargetName);
+                    _logger.LogInformation("Transferring data to {Target} using procedure {Procedure}...",
+                        _dataTarget.TargetName, job.TargetProcedure);
+
+                    // Добавляем метаданные для правильной обработки в target
+                    fetchedData.Source = job.JobType.ToString();
 
                     var saveResult = await _dataTarget.SaveDataAsync(fetchedData, cancellationToken);
 
@@ -157,13 +175,11 @@ namespace MobileGwDataSync.Core.Services
                 await LogStepAsync(runId, StepNames.FinalizeTarget, async () =>
                 {
                     _logger.LogInformation("Finalizing target...");
-
                     await _dataTarget.FinalizeTargetAsync(true, cancellationToken);
-
                     return "Target finalized successfully";
                 }, cancellationToken);
 
-                // Обновляем статус запуска
+                // Обновляем статус
                 syncRun.Status = SyncStatus.Completed;
                 syncRun.RecordsProcessed = fetchedData.TotalRows;
                 syncRun.EndTime = DateTime.UtcNow;
@@ -171,12 +187,11 @@ namespace MobileGwDataSync.Core.Services
 
                 stopwatch.Stop();
 
-                // Записываем метрики
                 _metricsService?.RecordSyncComplete(
-                    jobId,                      // jobName
-                    true,                       // success
-                    fetchedData.TotalRows,      // recordsProcessed
-                    stopwatch.Elapsed           // duration
+                    jobId,
+                    true,
+                    fetchedData.TotalRows,
+                    stopwatch.Elapsed
                 );
 
                 _logger.LogInformation(
@@ -194,7 +209,9 @@ namespace MobileGwDataSync.Core.Services
                         ["RunId"] = runId,
                         ["RecordsFetched"] = fetchedData.TotalRows,
                         ["Source"] = _dataSource.SourceName,
-                        ["Target"] = _dataTarget.TargetName
+                        ["Target"] = _dataTarget.TargetName,
+                        ["JobType"] = job.JobType.ToString(),
+                        ["Procedure"] = job.TargetProcedure ?? "N/A"
                     }
                 };
             }
@@ -209,9 +226,7 @@ namespace MobileGwDataSync.Core.Services
                     await _repository.UpdateRunAsync(syncRun, CancellationToken.None);
                 }
 
-                // Финализируем target при отмене
                 await _dataTarget.FinalizeTargetAsync(false, CancellationToken.None);
-
                 throw;
             }
             catch (Exception ex)
@@ -226,9 +241,7 @@ namespace MobileGwDataSync.Core.Services
                     await _repository.UpdateRunAsync(syncRun, CancellationToken.None);
                 }
 
-                // Финализируем target при ошибке
                 await _dataTarget.FinalizeTargetAsync(false, CancellationToken.None);
-
                 _metricsService?.RecordSyncError(jobId, ex.GetType().Name);
 
                 return new SyncResultDTO
@@ -240,8 +253,6 @@ namespace MobileGwDataSync.Core.Services
                 };
             }
         }
-
-        // ... остальные методы без изменений ...
 
         private async Task LogStepAsync(
             Guid runId,

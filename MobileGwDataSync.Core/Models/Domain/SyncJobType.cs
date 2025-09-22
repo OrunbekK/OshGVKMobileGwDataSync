@@ -3,5 +3,6 @@
     public enum SyncJobType
     {
         Subscribers,      // Синхронизация абонентов
+        Controllers,      // Синхронизация контроллеров
     }
 }
