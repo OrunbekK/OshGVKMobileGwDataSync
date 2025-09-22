@@ -204,6 +204,7 @@ namespace MobileGwDataSync.Integration.OneC
         {
             try
             {
+                //subscribers
                 var response = JsonConvert.DeserializeObject<OneCSubscribersResponse>(json);
                 if (response == null || !response.Success)
                 {
@@ -217,7 +218,7 @@ namespace MobileGwDataSync.Integration.OneC
                     Columns = new List<string> {
                         "Account", "Subscriber", "Address", "Balance",
                         "Type", "State", "ControllerId", "RouteId"
-            }
+                    }
                 };
 
                 if (response.Subscribers != null)

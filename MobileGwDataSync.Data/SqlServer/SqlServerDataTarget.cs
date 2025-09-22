@@ -96,10 +96,33 @@ namespace MobileGwDataSync.Data.SqlServer
 
             try
             {
-                // Определяем тип данных из Source (устанавливается в SyncOrchestrator)
-                _currentJobType = data.Source?.ToLower() ?? "subscribers";
+                // Извлекаем параметры из metadata если они есть
+                if (data.Metadata != null)
+                {
+                    if (data.Metadata.TryGetValue("TargetProcedure", out var procedure))
+                    {
+                        _targetProcedure = procedure?.ToString();
+                        _logger.LogDebug("Using target procedure from metadata: {Procedure}", _targetProcedure);
+                    }
 
-                // Если процедура не установлена явно, определяем по типу
+                    if (data.Metadata.TryGetValue("TargetTable", out var table))
+                    {
+                        _targetTable = table?.ToString();
+                    }
+
+                    if (data.Metadata.TryGetValue("JobType", out var jobType))
+                    {
+                        _currentJobType = jobType?.ToString()?.ToLower() ?? "subscribers";
+                    }
+                }
+
+                // Если тип не определен из metadata, берем из Source
+                if (string.IsNullOrEmpty(_currentJobType))
+                {
+                    _currentJobType = data.Source?.ToLower() ?? "subscribers";
+                }
+
+                // Если процедура не установлена, определяем по типу
                 if (string.IsNullOrEmpty(_targetProcedure))
                 {
                     _targetProcedure = GetDefaultProcedureForType(_currentJobType);

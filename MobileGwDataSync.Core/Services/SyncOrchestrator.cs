@@ -163,6 +163,14 @@ namespace MobileGwDataSync.Core.Services
                     // Добавляем метаданные для правильной обработки в target
                     fetchedData.Source = job.JobType.ToString();
 
+                    // ДОБАВИТЬ: Передаем процедуру и таблицу через metadata
+                    fetchedData.Metadata = new Dictionary<string, object>
+                    {
+                        ["TargetProcedure"] = job.TargetProcedure,
+                        ["TargetTable"] = job.TargetTable ?? string.Empty,
+                        ["JobType"] = job.JobType.ToString()
+                    };
+
                     var saveResult = await _dataTarget.SaveDataAsync(fetchedData, cancellationToken);
 
                     if (!saveResult)

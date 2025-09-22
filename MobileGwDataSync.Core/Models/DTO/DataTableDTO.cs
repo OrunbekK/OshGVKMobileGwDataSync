@@ -10,5 +10,7 @@
         public int TotalRows => Rows.Count;
         public DateTime FetchedAt { get; set; }
         public string Source { get; set; } = string.Empty;
+
+        public Dictionary<string, object>? Metadata { get; set; }
     }
 }
