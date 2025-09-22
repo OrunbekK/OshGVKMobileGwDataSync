@@ -93,58 +93,62 @@ namespace MobileGwDataSync.API
                 // Rate Limiting
                 builder.Services.AddRateLimiter(options =>
                 {
-                    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-
                     options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(
                         httpContext => RateLimitPartition.GetFixedWindowLimiter(
-                            partitionKey: httpContext.User?.Identity?.Name ??
-                                         httpContext.Connection.RemoteIpAddress?.ToString() ??
-                                         "anonymous",
+                            partitionKey: httpContext.User?.Identity?.Name ?? httpContext.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
                             factory: partition => new FixedWindowRateLimiterOptions
                             {
                                 AutoReplenishment = true,
                                 PermitLimit = 100,
-                                QueueLimit = 0,
-                                Window = TimeSpan.FromMinutes(1)
-                            }));
-
-                    options.AddPolicy("HeavyOperation", httpContext =>
-                        RateLimitPartition.GetFixedWindowLimiter(
-                            partitionKey: httpContext.User?.Identity?.Name ??
-                                         httpContext.Connection.RemoteIpAddress?.ToString() ??
-                                         "anonymous",
-                            factory: partition => new FixedWindowRateLimiterOptions
-                            {
-                                AutoReplenishment = true,
-                                PermitLimit = 10,
-                                QueueLimit = 2,
-                                Window = TimeSpan.FromMinutes(1)
-                            }));
-
-                    options.AddPolicy("SyncOperations", httpContext =>
-                        RateLimitPartition.GetFixedWindowLimiter(
-                            partitionKey: httpContext.Request.Headers["X-Api-Key"].FirstOrDefault() ??
-                                         httpContext.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
-                            factory: _ => new FixedWindowRateLimiterOptions
-                            {
-                                AutoReplenishment = true,
-                                PermitLimit = 5,
-                                QueueLimit = 2,
                                 Window = TimeSpan.FromMinutes(1)
                             }));
 
                     // Политика для чтения данных
                     options.AddPolicy("ReadOperations", httpContext =>
                         RateLimitPartition.GetFixedWindowLimiter(
-                            partitionKey: httpContext.Request.Headers["X-Api-Key"].FirstOrDefault() ??
-                                         httpContext.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
-                            factory: _ => new FixedWindowRateLimiterOptions
+                            partitionKey: httpContext.User?.Identity?.Name ?? httpContext.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
+                            factory: partition => new FixedWindowRateLimiterOptions
                             {
                                 AutoReplenishment = true,
-                                PermitLimit = 60,
-                                QueueLimit = 10,
-                                Window = TimeSpan.FromMinutes(1)
+                                PermitLimit = 60,  // 60 запросов
+                                Window = TimeSpan.FromMinutes(1)  // в минуту
                             }));
+
+                    // Политика для операций синхронизации
+                    options.AddPolicy("SyncOperations", httpContext =>
+                        RateLimitPartition.GetFixedWindowLimiter(
+                            partitionKey: httpContext.User?.Identity?.Name ?? httpContext.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
+                            factory: partition => new FixedWindowRateLimiterOptions
+                            {
+                                AutoReplenishment = true,
+                                PermitLimit = 5,  // 5 запросов
+                                Window = TimeSpan.FromMinutes(5)  // в 5 минут
+                            }));
+
+                    // Политика для тяжелых операций
+                    options.AddPolicy("HeavyOperation", httpContext =>
+                        RateLimitPartition.GetFixedWindowLimiter(
+                            partitionKey: httpContext.User?.Identity?.Name ?? httpContext.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
+                            factory: partition => new FixedWindowRateLimiterOptions
+                            {
+                                AutoReplenishment = true,
+                                PermitLimit = 2,  // 2 запроса
+                                Window = TimeSpan.FromMinutes(10)  // в 10 минут
+                            }));
+
+                    // Обработка превышения лимита
+                    options.OnRejected = async (context, token) =>
+                    {
+                        context.HttpContext.Response.StatusCode = 429;
+                        await context.HttpContext.Response.WriteAsJsonAsync(new
+                        {
+                            error = "Too many requests",
+                            message = "Rate limit exceeded. Please try again later.",
+                            retryAfter = context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter)
+                                ? retryAfter.TotalSeconds
+                                : 60
+                        }, cancellationToken: token);
+                    };
                 });
 
                 // Response Caching

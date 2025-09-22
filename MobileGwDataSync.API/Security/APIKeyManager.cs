@@ -10,11 +10,13 @@ namespace MobileGwDataSync.API.Commands
     {
         private readonly ServiceDbContext _context;
         private readonly ILogger<APIKeyManager> _logger;
+        private readonly IConfiguration _configuration;
 
-        public APIKeyManager(ServiceDbContext context, ILogger<APIKeyManager> logger)
+        public APIKeyManager(ServiceDbContext context, ILogger<APIKeyManager> logger, IConfiguration configuration)
         {
             _context = context;
             _logger = logger;
+            _configuration = configuration;
         }
 
         public async Task<string> GenerateAPIKeyAsync(
@@ -24,11 +26,26 @@ namespace MobileGwDataSync.API.Commands
             string? allowedIPs = null,
             string[]? permissions = null)
         {
-            // Генерируем случайный ключ
+            // Проверка лимита ключей
+            var maxKeys = _configuration.GetValue<int>("Security:APIKeyManagement:MaxKeysPerClient", 10);
+            var currentKeysCount = await _context.APIKeys.CountAsync(k => k.IsActive);
+
+            if (currentKeysCount >= maxKeys)
+            {
+                throw new InvalidOperationException($"Maximum number of API keys ({maxKeys}) reached");
+            }
+
+            // Установка срока действия по умолчанию
+            if (!expiresAt.HasValue)
+            {
+                var defaultDays = _configuration.GetValue<int>("Security:APIKeyManagement:DefaultKeyExpirationDays", 365);
+                expiresAt = DateTime.UtcNow.AddDays(defaultDays);
+            }
+
             var key = GenerateRandomKey();
             var keyHash = ComputeHash(key);
 
-            var APIKey = new APIKeyEntity
+            var apiKey = new APIKeyEntity
             {
                 Name = name,
                 KeyHash = keyHash,
@@ -41,12 +58,12 @@ namespace MobileGwDataSync.API.Commands
                     System.Text.Json.JsonSerializer.Serialize(permissions) : null
             };
 
-            _context.APIKeys.Add(APIKey);
+            _context.APIKeys.Add(apiKey);
             await _context.SaveChangesAsync();
 
-            _logger.LogInformation("Generated new API key for {Name}", name);
+            _logger.LogInformation("Generated new API key for {Name}, expires at {ExpiresAt}", name, expiresAt);
 
-            return key; // Возвращаем сам ключ (только один раз!)
+            return key;
         }
 
         public async Task<List<APIKeyInfo>> ListAPIKeysAsync()

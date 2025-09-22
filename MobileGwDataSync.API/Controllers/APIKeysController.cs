@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.DataProtection.KeyManagement;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Configuration;
 using MobileGwDataSync.API.Commands;
 using MobileGwDataSync.API.Security;
 
@@ -14,11 +15,13 @@ namespace MobileGwDataSync.API.Controllers
     {
         private readonly APIKeyManager _APIKeyManager;
         private readonly ILogger<APIKeysController> _logger;
+        private readonly IConfiguration _configuration;
 
-        public APIKeysController(APIKeyManager APIKeyManager, ILogger<APIKeysController> logger)
+        public APIKeysController(APIKeyManager APIKeyManager, ILogger<APIKeysController> logger, IConfiguration configuration)
         {
             _APIKeyManager = APIKeyManager;
             _logger = logger;
+            _configuration = configuration;
         }
 
         /// <summary>
@@ -35,13 +38,15 @@ namespace MobileGwDataSync.API.Controllers
         {
             try
             {
-                // Дополнительная проверка на admin права
-                if (!User.Claims.Any(c => c.Type == "Permission" && c.Value == "admin"))
+                // Проверка настройки RequireAdminPermission
+                var requireAdmin = _configuration.GetValue<bool>("Security:APIKeyManagement:RequireAdminPermission", true);
+
+                if (requireAdmin && !User.Claims.Any(c => c.Type == "Permission" && c.Value == "admin"))
                 {
-                    return Forbid("Admin permission required");
+                    return Forbid("Admin permission required to generate API keys");
                 }
 
-                var APIKey = await _APIKeyManager.GenerateAPIKeyAsync(
+                var apiKey = await _APIKeyManager.GenerateAPIKeyAsync(
                     request.Name,
                     request.Description,
                     request.ExpiresAt,
@@ -53,7 +58,7 @@ namespace MobileGwDataSync.API.Controllers
                 return Ok(new
                 {
                     success = true,
-                    APIKey = APIKey,
+                    APIKey = apiKey,
                     warning = "СОХРАНИТЕ ЭТОТ КЛЮЧ! Он не может быть восстановлен."
                 });
             }

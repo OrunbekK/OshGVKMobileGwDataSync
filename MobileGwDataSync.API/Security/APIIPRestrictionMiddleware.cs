@@ -15,18 +15,32 @@
             _next = next;
             _logger = logger;
 
-            var ipConfig = configuration.GetSection("Security:ApiAccess");
-            _restrictionEnabled = ipConfig.GetValue<bool>("Enabled");
+            // Читаем конфигурацию для общего API доступа
+            var apiAccessConfig = configuration.GetSection("Security:ApiAccess");
+            _restrictionEnabled = apiAccessConfig.GetValue<bool>("Enabled");
 
-            var ips = ipConfig.GetSection("AllowedIPs").Get<string[]>() ?? Array.Empty<string>();
-            _allowedIPs = new HashSet<string>(ips);
+            _allowedIPs = new HashSet<string>();
+
+            // Всегда добавляем localhost
+            _allowedIPs.Add("::1");
+            _allowedIPs.Add("127.0.0.1");
+            _allowedIPs.Add("::ffff:127.0.0.1"); // IPv4-mapped IPv6
+
+            // Добавляем IP из конфигурации
+            var ips = apiAccessConfig.GetSection("AllowedIPs").Get<string[]>() ?? Array.Empty<string>();
+            foreach (var ip in ips)
+            {
+                _allowedIPs.Add(ip);
+            }
+
+            _logger.LogInformation("IP Restriction enabled: {Enabled}, Allowed IPs: {Count}",
+                _restrictionEnabled, _allowedIPs.Count);
         }
 
         public async Task InvokeAsync(HttpContext context)
         {
-            // Пропускаем проверку для admin endpoints и health
+            // Пропускаем проверку для специальных endpoints
             if (!_restrictionEnabled ||
-                context.Request.Path.StartsWithSegments("/api/admin") ||
                 context.Request.Path.StartsWithSegments("/health") ||
                 context.Request.Path.StartsWithSegments("/swagger") ||
                 context.Request.Path.StartsWithSegments("/metrics"))
@@ -39,11 +53,25 @@
             if (context.Request.Path.StartsWithSegments("/api"))
             {
                 var remoteIP = context.Connection.RemoteIpAddress;
-                var clientIP = remoteIP?.IsIPv4MappedToIPv6 == true
-                    ? remoteIP.MapToIPv4().ToString()
-                    : remoteIP?.ToString();
 
-                if (clientIP != null && !_allowedIPs.Contains(clientIP))
+                if (remoteIP == null)
+                {
+                    _logger.LogWarning("Cannot determine client IP address");
+                    context.Response.StatusCode = 403;
+                    await context.Response.WriteAsJsonAsync(new
+                    {
+                        error = "Access denied",
+                        message = "Cannot determine client IP",
+                        timestamp = DateTime.UtcNow
+                    });
+                    return;
+                }
+
+                var clientIP = remoteIP.IsIPv4MappedToIPv6
+                    ? remoteIP.MapToIPv4().ToString()
+                    : remoteIP.ToString();
+
+                if (!_allowedIPs.Contains(clientIP))
                 {
                     _logger.LogWarning("Blocked API access from unauthorized IP: {IP} to {Path}",
                         clientIP, context.Request.Path);
@@ -52,7 +80,7 @@
                     await context.Response.WriteAsJsonAsync(new
                     {
                         error = "Access denied",
-                        message = "Your IP is not authorized to access this API",
+                        message = $"Your IP ({clientIP}) is not authorized to access this API",
                         timestamp = DateTime.UtcNow
                     });
                     return;
