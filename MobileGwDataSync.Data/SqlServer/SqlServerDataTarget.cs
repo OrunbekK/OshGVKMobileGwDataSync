@@ -9,10 +9,10 @@ using System.Diagnostics;
 
 namespace MobileGwDataSync.Data.SqlServer
 {
-    public class UniversalSqlServerDataTarget : IDataTarget
+    public class SqlServerDataTarget : IDataTarget
     {
         private readonly string _connectionString;
-        private readonly ILogger<UniversalSqlServerDataTarget> _logger;
+        private readonly ILogger<SqlServerDataTarget> _logger;
         private readonly SyncSettings _syncSettings;
         private SqlConnection? _connection;
         private DataTable? _dataTable;
@@ -20,9 +20,9 @@ namespace MobileGwDataSync.Data.SqlServer
 
         public string TargetName => "SQL Server Business Database";
 
-        public UniversalSqlServerDataTarget(
+        public SqlServerDataTarget(
             AppSettings appSettings,
-            ILogger<UniversalSqlServerDataTarget> logger)
+            ILogger<SqlServerDataTarget> logger)
         {
             _connectionString = appSettings.ConnectionStrings.SqlServer;
             _syncSettings = appSettings.SyncSettings;
