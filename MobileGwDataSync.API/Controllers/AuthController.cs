@@ -181,11 +181,52 @@ namespace MobileGwDataSync.API.Controllers
             });
         }
 
+        //[HttpGet("test-hash")]
+        //[AllowAnonymous]
+        //public IActionResult TestHash([FromQuery] string password = "Admin123!")
+        //{
+        //    using var sha256 = SHA256.Create();
+        //    var hash = Convert.ToBase64String(sha256.ComputeHash(Encoding.UTF8.GetBytes(password)));
+
+        //    return Ok(new
+        //    {
+        //        password = password,
+        //        hash = hash,
+        //        expectedHash = "jZae727K08KaOmKSgOaGzww/XVqGr/PKEgIMkjrcbJI=",
+        //        matches = hash == "jZae727K08KaOmKSgOaGzww/XVqGr/PKEgIMkjrcbJI="
+        //    });
+        //}
+
+        //[HttpPost("generate-hash")]
+        //[AllowAnonymous]
+        //public IActionResult GenerateHash([FromBody] GenerateHashRequest request)
+        //{
+        //    using var sha256 = SHA256.Create();
+        //    var hash = Convert.ToBase64String(sha256.ComputeHash(Encoding.UTF8.GetBytes(request.Password)));
+
+        //    return Ok(new
+        //    {
+        //        password = request.Password,
+        //        hash = hash,
+        //        sqlCommand = $"UPDATE dashboard_users SET password_hash = '{hash}' WHERE username = '{request.Username}';"
+        //    });
+        //}
+
+        public class GenerateHashRequest
+        {
+            public string Username { get; set; } = string.Empty;
+            public string Password { get; set; } = string.Empty;
+        }
+
+        // Найдите метод VerifyPassword и замените его на:
         private bool VerifyPassword(string password, string passwordHash)
         {
-            // Простая проверка для примера. В production используйте BCrypt или Argon2
             using var sha256 = SHA256.Create();
             var hash = Convert.ToBase64String(sha256.ComputeHash(Encoding.UTF8.GetBytes(password)));
+
+            _logger.LogInformation("Input password hash: {InputHash}", hash);
+            _logger.LogInformation("Stored password hash: {StoredHash}", passwordHash);
+
             return hash == passwordHash;
         }
     }

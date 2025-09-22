@@ -1,9 +1,10 @@
-﻿using System.ComponentModel.DataAnnotations;
+﻿// MobileGwDataSync.Data/Entities/DashboardUserEntity.cs
+using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace MobileGwDataSync.Data.Entities
 {
-    [Table("dashboard_users")] // Указываем имя таблицы
+    [Table("dashboard_users")]
     public class DashboardUserEntity
     {
         [Key]
