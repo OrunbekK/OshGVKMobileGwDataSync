@@ -204,7 +204,7 @@ namespace MobileGwDataSync.Integration.OneC
         {
             try
             {
-                var response = JsonConvert.DeserializeObject<OneCResponseWrapper>(json);
+                var response = JsonConvert.DeserializeObject<OneCSubscribersResponse>(json);
                 if (response == null || !response.Success)
                 {
                     throw new DataSourceException("1C returned unsuccessful response");

@@ -1,5 +1,6 @@
 ﻿using Microsoft.Extensions.Logging;
 using MobileGwDataSync.Core.Models.DTO;
+using MobileGwDataSync.Integration.Models;
 using Newtonsoft.Json;
 using System.Data;
 
@@ -22,7 +23,7 @@ namespace MobileGwDataSync.Integration.OneC.Strategies
             {
                 Source = EntityName,
                 FetchedAt = DateTime.UtcNow,
-                Columns = new List<string> { "Id", "Name", "Address", "IsActive" }
+                Columns = new List<string> { "UID", "Controller", "ControllerId" }
             };
 
             if (response?.Controllers != null)
@@ -31,10 +32,9 @@ namespace MobileGwDataSync.Integration.OneC.Strategies
                 {
                     dataTable.Rows.Add(new Dictionary<string, object>
                     {
-                        ["Id"] = controller.Id,
-                        ["Name"] = controller.Name,
-                        ["Address"] = controller.Address ?? string.Empty,
-                        ["IsActive"] = controller.IsActive
+                        ["UID"] = controller.UID,
+                        ["Controller"] = controller.Controller,
+                        ["ControllerId"] = controller.ControllerId
                     });
                 }
             }
@@ -45,10 +45,9 @@ namespace MobileGwDataSync.Integration.OneC.Strategies
         public override DataTable CreateTVP()
         {
             var table = new DataTable();
-            table.Columns.Add("Id", typeof(string));
-            table.Columns.Add("Name", typeof(string));
-            table.Columns.Add("Address", typeof(string));
-            table.Columns.Add("IsActive", typeof(bool));
+            table.Columns.Add("UID", typeof(Guid));
+            table.Columns.Add("Controller", typeof(string));
+            table.Columns.Add("ControllerId", typeof(string));
             return table;
         }
 
@@ -57,10 +56,9 @@ namespace MobileGwDataSync.Integration.OneC.Strategies
             foreach (var row in data.Rows)
             {
                 var dataRow = table.NewRow();
-                dataRow["Id"] = row.GetValueOrDefault("Id", string.Empty);
-                dataRow["Name"] = row.GetValueOrDefault("Name", string.Empty);
-                dataRow["Address"] = row.GetValueOrDefault("Address", string.Empty);
-                dataRow["IsActive"] = Convert.ToBoolean(row.GetValueOrDefault("IsActive", false));
+                dataRow["UID"] = row.GetValueOrDefault("UID", string.Empty);
+                dataRow["Controller"] = row.GetValueOrDefault("Controller", string.Empty);
+                dataRow["ControllerId"] = row.GetValueOrDefault("ControllerId", string.Empty);
                 table.Rows.Add(dataRow);
             }
         }

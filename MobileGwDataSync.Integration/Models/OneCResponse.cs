@@ -1,9 +1,8 @@
 ﻿using Newtonsoft.Json;
-using System.Text.Json.Serialization;
 
 namespace MobileGwDataSync.Integration.Models
 {
-    public class OneCResponseWrapper
+    public class OneCSubscribersResponse
     {
         [JsonProperty("version")]
         public string Version { get; set; } = string.Empty;
@@ -21,10 +20,10 @@ namespace MobileGwDataSync.Integration.Models
         public int TotalCount { get; set; }
 
         [JsonProperty("statistics")]
-        public OneCStatistics? Statistics { get; set; }
+        public OneCSubscribersStatistics? Statistics { get; set; }
     }
 
-    public class OneCStatistics
+    public class OneCSubscribersStatistics
     {
         [JsonProperty("individual")]
         public int Individual { get; set; }
@@ -75,6 +74,36 @@ namespace MobileGwDataSync.Integration.Models
         public string Subscriber { get; set; } = string.Empty;
         public string Address { get; set; } = string.Empty;
         public decimal Balance { get; set; }
+    }
+
+    public class OneCControllersResponse
+    {
+        [JsonProperty("version")]
+        public string Version { get; set; } = string.Empty;
+
+        [JsonProperty("timestamp")]
+        public DateTime Timestamp { get; set; }
+
+        [JsonProperty("success")]
+        public bool Success { get; set; }
+
+        [JsonProperty("controllers")]
+        public List<OneCController>? Controllers { get; set; }
+
+        [JsonProperty("totalCount")]
+        public int TotalCount { get; set; }
+    }
+
+    public class OneCController
+    {
+        [JsonProperty("uid")]
+        public Guid UID { get; set; } = Guid.Empty;
+
+        [JsonProperty("value")]
+        public string Controller { get; set; } = string.Empty;
+
+        [JsonProperty("controllerId")]
+        public string ControllerId { get; set; } = string.Empty;
     }
 
     /// <summary>

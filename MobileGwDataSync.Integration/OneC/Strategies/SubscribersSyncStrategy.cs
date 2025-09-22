@@ -18,7 +18,7 @@ namespace MobileGwDataSync.Integration.OneC.Strategies
 
         public override DataTableDTO ParseResponse(string jsonResponse)
         {
-            var response = JsonConvert.DeserializeObject<OneCResponseWrapper>(jsonResponse);
+            var response = JsonConvert.DeserializeObject<OneCSubscribersResponse>(jsonResponse);
             if (response == null || !response.Success)
                 throw new DataSourceException("1C returned unsuccessful response");
 
