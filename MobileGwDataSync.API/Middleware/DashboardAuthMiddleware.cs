@@ -20,8 +20,7 @@ namespace MobileGwDataSync.API.Middleware
             var path = context.Request.Path.Value?.ToLower() ?? "";
 
             // Проверяем доступ к dashboard файлам
-            if (path.Contains("/dashboard") &&
-                (path.EndsWith(".html") || path.EndsWith("/") || !path.Contains(".")))
+            if ((path.Contains("/dashboard") || path.Contains("/dashboard-advanced")) && path.EndsWith(".html"))
             {
                 // Получаем сервис из контекста запроса
                 var tokenService = context.RequestServices.GetRequiredService<IJwtTokenService>();
