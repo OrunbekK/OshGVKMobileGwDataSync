@@ -208,6 +208,8 @@ namespace MobileGwDataSync.API
                 builder.Services.AddScoped<IAlertManager, Notifications.Services.AlertManager>();
                 builder.Services.AddScoped<Notifications.Channels.EmailChannel>();
                 builder.Services.AddScoped<Notifications.Channels.TelegramChannel>();
+                
+                builder.Services.AddSingleton<Quartz.ISchedulerFactory, Quartz.Impl.StdSchedulerFactory>();
 
                 builder.Services.AddHttpClient();
 
