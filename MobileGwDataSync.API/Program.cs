@@ -76,7 +76,7 @@ namespace MobileGwDataSync.API
                     options.ReportApiVersions = true;
                     options.ApiVersionReader = ApiVersionReader.Combine(
                         new UrlSegmentApiVersionReader(),
-                        new HeaderApiVersionReader("X-Api-Version"),
+                        new HeaderApiVersionReader("X-API-Version"),
                         new QueryStringApiVersionReader("api-version")
                     );
                 })
