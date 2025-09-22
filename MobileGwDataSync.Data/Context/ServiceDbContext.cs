@@ -94,6 +94,12 @@ namespace MobileGwDataSync.Data.Context
                 entity.HasIndex(e => e.RecordedAt);
             });
 
+            modelBuilder.Entity<DashboardUserEntity>(entity =>
+            {
+                entity.ToTable("dashboard_users");
+                entity.HasIndex(e => e.Username).IsUnique();
+            });
+
             // Seed initial data
             modelBuilder.Entity<SyncJobEntity>().HasData(
                 new SyncJobEntity

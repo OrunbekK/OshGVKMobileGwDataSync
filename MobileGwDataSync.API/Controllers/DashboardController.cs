@@ -307,11 +307,20 @@ namespace MobileGwDataSync.API.Controllers
             <form id='loginForm'>
                 <div class='mb-3'>
                     <label class='form-label'>Username</label>
-                    <input type='text' class='form-control' id='loginUsername' required>
+                    <input type='text' 
+                           class='form-control' 
+                           id='loginUsername' 
+                           required 
+                           autofocus
+                           autocomplete='username'>
                 </div>
                 <div class='mb-3'>
                     <label class='form-label'>Password</label>
-                    <input type='password' class='form-control' id='loginPassword' required>
+                    <input type='password' 
+                           class='form-control' 
+                           id='loginPassword' 
+                           required
+                           autocomplete='current-password'>
                 </div>
                 <button type='submit' class='btn btn-primary w-100'>Login</button>
             </form>
@@ -448,6 +457,14 @@ namespace MobileGwDataSync.API.Controllers
     </div>
 
     <script>
+        // Автофокус при загрузке страницы
+        window.addEventListener('load', () => {
+            const usernameField = document.getElementById('loginUsername');
+            if (usernameField) {
+                usernameField.focus();
+            }
+        });
+
         let token = localStorage.getItem('token');
         let activityChart, statusChart;
         let refreshInterval;
