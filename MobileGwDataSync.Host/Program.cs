@@ -9,6 +9,7 @@ using MobileGwDataSync.Data.SqlServer;
 using MobileGwDataSync.Host.Services;
 using MobileGwDataSync.Host.Services.HostedServices;
 using MobileGwDataSync.Integration.OneC;
+using MobileGwDataSync.Integration.OneC.Strategies;
 using Quartz;
 using Serilog;
 using Serilog.Events;
@@ -107,7 +108,11 @@ namespace MobileGwDataSync.Host
             services.AddScoped<ISyncJobRepository, SyncJobRepository>();
 
             // Core services
-            services.AddScoped<IDataSource, OneCHttpConnector>();
+            services.AddScoped<IDataSource, UniversalOneCConnector>();
+            services.AddScoped<ISyncStrategyFactory, SyncStrategyFactory>();
+            services.AddScoped<SubscribersSyncStrategy>();
+            services.AddScoped<ControllersSyncStrategy>();
+
             services.AddScoped<IDataTarget, SqlServerDataTarget>();
             services.AddScoped<ISyncService, SyncOrchestrator>();
 

@@ -27,13 +27,23 @@ namespace MobileGwDataSync.Integration.OneC
             Dictionary<string, string> parameters,
             CancellationToken cancellationToken = default)
         {
+            // Получаем тип задачи из параметров
             var jobType = parameters.GetValueOrDefault("jobType", "subscribers");
+
+            _logger.LogInformation("Fetching data for job type: {JobType}", jobType);
+
+            // Получаем стратегию для типа
             _currentStrategy = _strategyFactory.GetStrategy(jobType);
 
-            _logger.LogInformation("Fetching data for {EntityName} from endpoint {Endpoint}",
-                _currentStrategy.EntityName, _currentStrategy.Endpoint);
+            _logger.LogInformation("Using strategy {Strategy} for endpoint {Endpoint}",
+                _currentStrategy.GetType().Name, _currentStrategy.Endpoint);
 
-            return await _currentStrategy.FetchDataAsync(_httpClient, cancellationToken);
+            // Используем стратегию для получения данных
+            var result = await _currentStrategy.FetchDataAsync(_httpClient, cancellationToken);
+
+            _logger.LogInformation("Strategy returned {Count} records", result.TotalRows);
+
+            return result;
         }
 
         public async Task<bool> TestConnectionAsync(CancellationToken cancellationToken = default)
