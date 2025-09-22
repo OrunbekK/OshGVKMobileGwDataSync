@@ -56,6 +56,9 @@ namespace MobileGwDataSync.API
                 var appSettings = builder.Configuration.Get<AppSettings>() ?? new AppSettings();
                 builder.Services.AddSingleton(appSettings);
 
+                var notificationSettings = appSettings.Notifications ?? new NotificationSettings();
+                builder.Services.AddSingleton(notificationSettings);
+
                 // Add services to the container
                 builder.Services.AddControllers()
                     .AddJsonOptions(options =>
@@ -171,6 +174,13 @@ namespace MobileGwDataSync.API
                 builder.Services.AddScoped<ISyncJobRepository, SyncJobRepository>();
                 builder.Services.AddScoped<ISyncService, SyncOrchestrator>();
 
+                // Notification services
+                builder.Services.AddScoped<IAlertManager, Notifications.Services.AlertManager>();
+                builder.Services.AddScoped<Notifications.Channels.EmailChannel>();
+                builder.Services.AddScoped<Notifications.Channels.TelegramChannel>();
+
+                builder.Services.AddHttpClient();
+
                 // MetricsService registration
                 if (builder.Configuration.GetValue<bool>("Monitoring:Prometheus:Enabled", false))
                     builder.Services.AddSingleton<IMetricsService, MetricsService>();
@@ -206,6 +216,8 @@ namespace MobileGwDataSync.API
                     }, tags: new[] { "system" });
 
                 builder.Services.AddHostedService<HealthMonitorService>();
+
+                builder.Services.AddHostedService<AlertMonitorService>();
 
                 // CORS
                 builder.Services.AddCors(options =>

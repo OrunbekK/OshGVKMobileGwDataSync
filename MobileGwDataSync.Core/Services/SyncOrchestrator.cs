@@ -40,7 +40,9 @@ namespace MobileGwDataSync.Core.Services
         public async Task<SyncResultDTO> ExecuteSyncAsync(string jobId, CancellationToken cancellationToken = default)
         {
             var stopwatch = Stopwatch.StartNew();
+            
             SyncRun? syncRun = null;
+            SyncJob? job = null;
 
             _logger.LogInformation("Starting sync for job {JobId}", jobId);
             _metricsService?.RecordSyncStart(jobId);
@@ -48,7 +50,7 @@ namespace MobileGwDataSync.Core.Services
             try
             {
                 // Получаем настройки задачи
-                var job = await _jobRepository.GetJobAsync(jobId, cancellationToken);
+                job = await _jobRepository.GetJobAsync(jobId, cancellationToken);
                 if (job == null)
                 {
                     throw new SyncException($"Job {jobId} not found in database");
@@ -257,7 +259,7 @@ namespace MobileGwDataSync.Core.Services
                     await _alertManager.SendAlertAsync(new Alert
                     {
                         RuleName = $"Sync_Failed_{jobId}",
-                        Title = $"Synchronization Failed: {job.Name}",
+                        Title = $"Synchronization Failed: {job?.Name ?? string.Empty}",
                         Message = $"Data source error: {ex.Message}",
                         Severity = "Critical",
                         Channels = new List<string> { "telegram", "email" },
@@ -265,7 +267,7 @@ namespace MobileGwDataSync.Core.Services
                         Details = new Dictionary<string, string>
                         {
                             ["JobId"] = jobId,
-                            ["JobName"] = job.Name,
+                            ["JobName"] = job?.Name ?? string.Empty,
                             ["ErrorType"] = "DataSourceException",
                             ["Time"] = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")
                         }
