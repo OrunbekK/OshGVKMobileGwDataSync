@@ -16,7 +16,9 @@ namespace MobileGwDataSync.Data.SqlServer
         private readonly SyncSettings _syncSettings;
         private SqlConnection? _connection;
         private DataTable? _dataTable;
-        private int _recordsToProcess;
+        private string? _currentJobType;
+        private string? _targetProcedure;
+        private string? _targetTable;
 
         public string TargetName => "SQL Server Business Database";
 
@@ -27,6 +29,26 @@ namespace MobileGwDataSync.Data.SqlServer
             _connectionString = appSettings.ConnectionStrings.SqlServer;
             _syncSettings = appSettings.SyncSettings;
             _logger = logger;
+        }
+
+        /// <summary>
+        /// Устанавливает параметры для текущей операции синхронизации
+        /// Вызывается из UniversalOneCConnector через параметры
+        /// </summary>
+        public void SetSyncParameters(Dictionary<string, string> parameters)
+        {
+            if (parameters.TryGetValue("targetProcedure", out var procedure))
+            {
+                _targetProcedure = procedure;
+            }
+
+            if (parameters.TryGetValue("targetTable", out var table))
+            {
+                _targetTable = table;
+            }
+
+            _logger.LogDebug("Sync parameters set: Procedure={Procedure}, Table={Table}",
+                _targetProcedure, _targetTable);
         }
 
         public async Task<bool> PrepareTargetAsync(CancellationToken cancellationToken = default)
@@ -45,9 +67,6 @@ namespace MobileGwDataSync.Data.SqlServer
                     CommandType = CommandType.StoredProcedure
                 };
                 await testCommand.ExecuteNonQueryAsync(cancellationToken);
-
-                // Создаем DataTable для TVP
-                _dataTable = CreateSubscribersTVP();
 
                 _logger.LogInformation("Target prepared successfully. Connection state: {State}",
                     _connection.State);
@@ -68,7 +87,7 @@ namespace MobileGwDataSync.Data.SqlServer
 
         public async Task<bool> SaveDataAsync(DataTableDTO data, CancellationToken cancellationToken = default)
         {
-            if (_connection == null || _dataTable == null)
+            if (_connection == null)
             {
                 throw new InvalidOperationException("Target not prepared. Call PrepareTargetAsync first.");
             }
@@ -77,23 +96,39 @@ namespace MobileGwDataSync.Data.SqlServer
 
             try
             {
-                _logger.LogInformation("Processing {Count} records for SQL Server", data.TotalRows);
-                _recordsToProcess = data.TotalRows;
+                // Определяем тип данных из Source (устанавливается в SyncOrchestrator)
+                _currentJobType = data.Source?.ToLower() ?? "subscribers";
+
+                // Если процедура не установлена явно, определяем по типу
+                if (string.IsNullOrEmpty(_targetProcedure))
+                {
+                    _targetProcedure = GetDefaultProcedureForType(_currentJobType);
+                    _logger.LogWarning("Target procedure not set, using default: {Procedure}", _targetProcedure);
+                }
+
+                _logger.LogInformation("Processing {Count} records for SQL Server. Type: {Type}, Procedure: {Procedure}",
+                    data.TotalRows, _currentJobType, _targetProcedure);
+
+                // Создаем DataTable для TVP на основе типа
+                _dataTable = CreateTVPForType(_currentJobType);
 
                 // Заполняем DataTable данными
                 PopulateDataTable(data);
 
                 // Выполняем MERGE через хранимую процедуру
-                using var command = new SqlCommand("USP_MA_MergeSubscribers", _connection)
+                using var command = new SqlCommand(_targetProcedure, _connection)
                 {
                     CommandType = CommandType.StoredProcedure,
                     CommandTimeout = _syncSettings.TimeoutMinutes * 60
                 };
 
+                // Определяем имя параметра TVP
+                var tvpParamName = GetTVPParameterName(_targetProcedure);
+
                 // Добавляем TVP параметр
-                var tvpParam = command.Parameters.AddWithValue("@Subscribers", _dataTable);
+                var tvpParam = command.Parameters.AddWithValue(tvpParamName, _dataTable);
                 tvpParam.SqlDbType = SqlDbType.Structured;
-                tvpParam.TypeName = "dbo.SubscriberTVP";
+                tvpParam.TypeName = GetTVPTypeName(_targetProcedure);
 
                 // Output параметры для статистики
                 var processedParam = command.Parameters.Add("@ProcessedCount", SqlDbType.Int);
@@ -129,13 +164,21 @@ namespace MobileGwDataSync.Data.SqlServer
             }
             catch (SqlException ex)
             {
-                _logger.LogError(ex, "SQL Server operation failed");
+                _logger.LogError(ex, "SQL Server operation failed for type {Type}, procedure {Procedure}",
+                    _currentJobType, _targetProcedure);
                 throw new DataTargetException($"Failed to save data to SQL Server: {ex.Message}", ex);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Unexpected error during save operation");
                 throw new DataTargetException("Unexpected error saving data", ex);
+            }
+            finally
+            {
+                // Очищаем DataTable после использования
+                _dataTable?.Clear();
+                _dataTable?.Dispose();
+                _dataTable = null;
             }
         }
 
@@ -156,6 +199,9 @@ namespace MobileGwDataSync.Data.SqlServer
                 _dataTable?.Clear();
                 _dataTable?.Dispose();
                 _dataTable = null;
+                _currentJobType = null;
+                _targetProcedure = null;
+                _targetTable = null;
 
                 if (_connection != null)
                 {
@@ -179,22 +225,37 @@ namespace MobileGwDataSync.Data.SqlServer
         }
 
         /// <summary>
-        /// Создает структуру DataTable для TVP
+        /// Создает структуру DataTable для TVP на основе типа задачи
         /// </summary>
-        private DataTable CreateSubscribersTVP()
+        private DataTable CreateTVPForType(string jobType)
         {
             var table = new DataTable();
 
-            table.Columns.Add("Account", typeof(string));
-            table.Columns.Add("Subscriber", typeof(string));
-            table.Columns.Add("Address", typeof(string));
-            table.Columns.Add("Balance", typeof(decimal));
-            table.Columns.Add("Type", typeof(byte));
-            table.Columns.Add("State", typeof(string));
-            table.Columns.Add("ControllerId", typeof(string));
-            table.Columns.Add("RouteId", typeof(string));
+            switch (jobType.ToLower())
+            {
+                case "subscribers":
+                    table.Columns.Add("Account", typeof(string));
+                    table.Columns.Add("Subscriber", typeof(string));
+                    table.Columns.Add("Address", typeof(string));
+                    table.Columns.Add("Balance", typeof(decimal));
+                    table.Columns.Add("Type", typeof(byte));
+                    table.Columns.Add("State", typeof(string));
+                    table.Columns.Add("ControllerId", typeof(string));
+                    table.Columns.Add("RouteId", typeof(string));
+                    table.PrimaryKey = new[] { table.Columns["Account"]! };
+                    break;
 
-            table.PrimaryKey = new[] { table.Columns["Account"]! };
+                case "controllers":
+                    table.Columns.Add("UID", typeof(Guid));
+                    table.Columns.Add("Controller", typeof(string));
+                    table.Columns.Add("ControllerId", typeof(string));
+                    table.PrimaryKey = new[] { table.Columns["UID"]! };
+                    break;
+
+                default:
+                    throw new NotSupportedException($"TVP structure not defined for type '{jobType}'");
+            }
+
             return table;
         }
 
@@ -208,43 +269,159 @@ namespace MobileGwDataSync.Data.SqlServer
 
             _dataTable.Clear();
 
-            // Используем HashSet для отслеживания уже добавленных Account
-            var addedAccounts = new HashSet<string>();
+            // Определяем ключевое поле на основе типа
+            var keyColumn = _currentJobType?.ToLower() switch
+            {
+                "subscribers" => "Account",
+                "controllers" => "UID",
+                _ => data.Columns.FirstOrDefault() ?? "Id"
+            };
+
+            // Используем HashSet для отслеживания уже добавленных ключей
+            var addedKeys = new HashSet<string>();
             var duplicateCount = 0;
 
             foreach (var row in data.Rows)
             {
-                var account = row.GetValueOrDefault("Account", string.Empty)?.ToString() ?? string.Empty;
+                // Получаем значение ключа
+                var keyValue = row.GetValueOrDefault(keyColumn, string.Empty)?.ToString() ?? string.Empty;
 
-                // Пропускаем дубликаты
-                if (!string.IsNullOrEmpty(account) && !addedAccounts.Add(account))
+                // Пропускаем дубликаты и пустые ключи
+                if (string.IsNullOrEmpty(keyValue))
+                {
+                    _logger.LogWarning("Row has empty key value for column {Column}, skipping", keyColumn);
+                    continue;
+                }
+
+                if (!addedKeys.Add(keyValue))
                 {
                     duplicateCount++;
-                    _logger.LogWarning("Skipping duplicate Account: {Account}", account);
+                    _logger.LogWarning("Skipping duplicate {Key}: {Value}", keyColumn, keyValue);
                     continue;
                 }
 
                 var dataRow = _dataTable.NewRow();
 
-                // Мапим поля с проверкой
-                dataRow["Account"] = row.GetValueOrDefault("Account", string.Empty);
-                dataRow["Subscriber"] = row.GetValueOrDefault("Subscriber", string.Empty);
-                dataRow["Address"] = row.GetValueOrDefault("Address", string.Empty);
-                dataRow["Balance"] = Convert.ToDecimal(row.GetValueOrDefault("Balance", 0m));
-                dataRow["Type"] = Convert.ToByte(row.GetValueOrDefault("Type", 0));
-                dataRow["State"] = row.GetValueOrDefault("State", string.Empty);
-                dataRow["ControllerId"] = row.GetValueOrDefault("ControllerId", string.Empty);
-                dataRow["RouteId"] = row.GetValueOrDefault("RouteId", string.Empty);
+                // Мапим поля из DTO в DataTable
+                foreach (DataColumn column in _dataTable.Columns)
+                {
+                    if (row.ContainsKey(column.ColumnName))
+                    {
+                        var value = row[column.ColumnName];
+
+                        // Преобразуем значение к нужному типу
+                        if (value != null && value.ToString() != string.Empty)
+                        {
+                            try
+                            {
+                                if (column.DataType == typeof(decimal))
+                                {
+                                    dataRow[column.ColumnName] = Convert.ToDecimal(value);
+                                }
+                                else if (column.DataType == typeof(byte))
+                                {
+                                    dataRow[column.ColumnName] = Convert.ToByte(value);
+                                }
+                                else if (column.DataType == typeof(int))
+                                {
+                                    dataRow[column.ColumnName] = Convert.ToInt32(value);
+                                }
+                                else if (column.DataType == typeof(Guid))
+                                {
+                                    dataRow[column.ColumnName] = value is Guid guid ? guid : Guid.Parse(value.ToString()!);
+                                }
+                                else
+                                {
+                                    dataRow[column.ColumnName] = value.ToString() ?? string.Empty;
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogError(ex, "Failed to convert value for column {Column}: {Value}",
+                                    column.ColumnName, value);
+                                dataRow[column.ColumnName] = GetDefaultValue(column.DataType);
+                            }
+                        }
+                        else
+                        {
+                            dataRow[column.ColumnName] = GetDefaultValue(column.DataType);
+                        }
+                    }
+                    else
+                    {
+                        // Если поле отсутствует в данных, ставим значение по умолчанию
+                        dataRow[column.ColumnName] = GetDefaultValue(column.DataType);
+                    }
+                }
 
                 _dataTable.Rows.Add(dataRow);
             }
 
             if (duplicateCount > 0)
             {
-                _logger.LogWarning("Found and skipped {Count} duplicate Account entries", duplicateCount);
+                _logger.LogWarning("Found and skipped {Count} duplicate entries", duplicateCount);
             }
 
             _logger.LogDebug("Populated DataTable with {Count} unique rows", _dataTable.Rows.Count);
+        }
+
+        /// <summary>
+        /// Получает значение по умолчанию для типа данных
+        /// </summary>
+        private object GetDefaultValue(Type dataType)
+        {
+            if (dataType == typeof(string))
+                return string.Empty;
+            if (dataType == typeof(Guid))
+                return Guid.Empty;
+            if (dataType.IsValueType)
+                return Activator.CreateInstance(dataType)!;
+            return DBNull.Value;
+        }
+
+        /// <summary>
+        /// Определяет процедуру по умолчанию для типа
+        /// </summary>
+        private string GetDefaultProcedureForType(string jobType)
+        {
+            return jobType.ToLower() switch
+            {
+                "subscribers" => "USP_MA_MergeSubscribers",
+                "controllers" => "USP_MA_MergeControllers",
+                _ => throw new NotSupportedException($"Default procedure not defined for type '{jobType}'")
+            };
+        }
+
+        /// <summary>
+        /// Определяет имя параметра TVP для процедуры
+        /// </summary>
+        private string GetTVPParameterName(string procedureName)
+        {
+            // Извлекаем тип сущности из имени процедуры
+            // USP_MA_MergeSubscribers -> @Subscribers
+            // USP_MA_MergeControllers -> @Controllers
+
+            if (procedureName.StartsWith("USP_MA_Merge"))
+            {
+                var entityName = procedureName.Replace("USP_MA_Merge", "");
+                return $"@{entityName}";
+            }
+
+            // Fallback
+            return "@Data";
+        }
+
+        /// <summary>
+        /// Определяет имя TVP типа на основе процедуры
+        /// </summary>
+        private string GetTVPTypeName(string procedureName)
+        {
+            return procedureName switch
+            {
+                "USP_MA_MergeSubscribers" => "dbo.SubscriberTVP",
+                "USP_MA_MergeControllers" => "dbo.ControllerTVP",
+                _ => throw new NotSupportedException($"TVP type not defined for procedure {procedureName}")
+            };
         }
 
         /// <summary>
