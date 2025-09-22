@@ -292,6 +292,9 @@ namespace MobileGwDataSync.Data.SqlServer
 
             _dataTable.Clear();
 
+            _logger.LogInformation("=== Starting PopulateDataTable ===");
+            _logger.LogInformation("Type: {Type}, Input rows: {Count}", _currentJobType, data.Rows.Count);
+
             // Определяем ключевое поле на основе типа
             var keyColumn = _currentJobType?.ToLower() switch
             {
@@ -300,9 +303,10 @@ namespace MobileGwDataSync.Data.SqlServer
                 _ => data.Columns.FirstOrDefault() ?? "Id"
             };
 
-            // Используем HashSet для отслеживания уже добавленных ключей
             var addedKeys = new HashSet<string>();
             var duplicateCount = 0;
+            var skippedCount = 0;
+            var processedCount = 0;
 
             foreach (var row in data.Rows)
             {
@@ -313,6 +317,7 @@ namespace MobileGwDataSync.Data.SqlServer
                 if (string.IsNullOrEmpty(keyValue))
                 {
                     _logger.LogWarning("Row has empty key value for column {Column}, skipping", keyColumn);
+                    skippedCount++;
                     continue;
                 }
 
@@ -351,7 +356,22 @@ namespace MobileGwDataSync.Data.SqlServer
                                 }
                                 else if (column.DataType == typeof(Guid))
                                 {
-                                    dataRow[column.ColumnName] = value is Guid guid ? guid : Guid.Parse(value.ToString()!);
+                                    // Детальное логирование для Guid
+                                    _logger.LogDebug("Converting Guid - Column: {Col}, Value: {Val}, Type: {Type}",
+                                        column.ColumnName, value, value.GetType().Name);
+
+                                    if (value is string guidString)
+                                    {
+                                        dataRow[column.ColumnName] = Guid.Parse(guidString);
+                                    }
+                                    else if (value is Guid guid)
+                                    {
+                                        dataRow[column.ColumnName] = guid;
+                                    }
+                                    else
+                                    {
+                                        throw new InvalidCastException($"Cannot convert {value.GetType()} to Guid");
+                                    }
                                 }
                                 else
                                 {
@@ -360,8 +380,8 @@ namespace MobileGwDataSync.Data.SqlServer
                             }
                             catch (Exception ex)
                             {
-                                _logger.LogError(ex, "Failed to convert value for column {Column}: {Value}",
-                                    column.ColumnName, value);
+                                _logger.LogError(ex, "Failed to convert value for column {Column}: {Value} (Type: {Type})",
+                                    column.ColumnName, value, value?.GetType().Name);
                                 dataRow[column.ColumnName] = GetDefaultValue(column.DataType);
                             }
                         }
@@ -378,14 +398,31 @@ namespace MobileGwDataSync.Data.SqlServer
                 }
 
                 _dataTable.Rows.Add(dataRow);
+                processedCount++;
             }
 
-            if (duplicateCount > 0)
+            // Итоговое логирование
+            _logger.LogInformation("=== PopulateDataTable Complete ===");
+            _logger.LogInformation("Processed: {Processed}, Skipped: {Skipped}, Duplicates: {Duplicates}",
+                processedCount, skippedCount, duplicateCount);
+            _logger.LogInformation("Final TVP row count: {Count}", _dataTable.Rows.Count);
+
+            // Логируем первые несколько строк для проверки
+            if (_dataTable.Rows.Count > 0 && _logger.IsEnabled(LogLevel.Debug))
             {
-                _logger.LogWarning("Found and skipped {Count} duplicate entries", duplicateCount);
+                _logger.LogDebug("=== Sample TVP Data (first 3 rows) ===");
+                for (int i = 0; i < Math.Min(3, _dataTable.Rows.Count); i++)
+                {
+                    var row = _dataTable.Rows[i];
+                    var rowData = new Dictionary<string, object>();
+                    foreach (DataColumn col in _dataTable.Columns)
+                    {
+                        rowData[col.ColumnName] = row[col] ?? "NULL";
+                    }
+                    _logger.LogDebug("Row {Index}: {Data}", i,
+                        string.Join(", ", rowData.Select(kvp => $"{kvp.Key}={kvp.Value}")));
+                }
             }
-
-            _logger.LogDebug("Populated DataTable with {Count} unique rows", _dataTable.Rows.Count);
         }
 
         /// <summary>

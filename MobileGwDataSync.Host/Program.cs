@@ -181,10 +181,10 @@ namespace MobileGwDataSync.Host
             services.AddHostedService<DynamicJobSchedulerService>();
 
             // Console status service - только в интерактивном режиме
-            if (Environment.UserInteractive)
+            /*if (Environment.UserInteractive)
             {
                 services.AddHostedService<ConsoleStatusService>();
-            }
+            }*/
 
             // Health checks
             services.AddHealthChecks()
