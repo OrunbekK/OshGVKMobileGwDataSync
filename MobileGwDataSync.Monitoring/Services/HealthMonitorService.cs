@@ -13,7 +13,6 @@ namespace MobileGwDataSync.Monitoring.Services
         private readonly IMetricsService _metricsService;
         private readonly ILogger<HealthMonitorService> _logger;
         private readonly AppSettings _appSettings;
-        private Timer? _timer;
 
         public HealthMonitorService(
             IServiceProvider serviceProvider,

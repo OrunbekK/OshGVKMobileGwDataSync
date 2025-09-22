@@ -5,6 +5,7 @@ using MobileGwDataSync.Core.Interfaces;
 using MobileGwDataSync.Core.Models.Domain;
 using MobileGwDataSync.Core.Models.DTO;
 using System.Diagnostics;
+using static Quartz.Logging.OperationName;
 
 namespace MobileGwDataSync.Core.Services
 {
@@ -16,6 +17,7 @@ namespace MobileGwDataSync.Core.Services
         private readonly ISyncJobRepository _jobRepository;
         private readonly ILogger<SyncOrchestrator> _logger;
         private readonly IMetricsService? _metricsService;
+        private readonly IAlertManager? _alertManager;
 
         public SyncOrchestrator(
             IDataSource dataSource,
@@ -23,7 +25,8 @@ namespace MobileGwDataSync.Core.Services
             ISyncRunRepository repository,
             ISyncJobRepository jobRepository,
             ILogger<SyncOrchestrator> logger,
-            IMetricsService? metricsService = null)
+            IMetricsService? metricsService = null,
+            IAlertManager? alertManager = null)
         {
             _dataSource = dataSource;
             _dataTarget = dataTarget;
@@ -31,6 +34,7 @@ namespace MobileGwDataSync.Core.Services
             _jobRepository = jobRepository;
             _logger = logger;
             _metricsService = metricsService;
+            _alertManager = alertManager;
         }
 
         public async Task<SyncResultDTO> ExecuteSyncAsync(string jobId, CancellationToken cancellationToken = default)
@@ -227,9 +231,6 @@ namespace MobileGwDataSync.Core.Services
                     }
                 };
             }
-            // В методе ExecuteSyncAsync в MobileGwDataSync.Core/Services/SyncOrchestrator.cs
-            // Замените существующие catch блоки на эти:
-
             catch (OperationCanceledException)
             {
                 _logger.LogWarning("Sync cancelled for job {JobId}", jobId);
@@ -249,6 +250,27 @@ namespace MobileGwDataSync.Core.Services
             {
                 _logger.LogError(ex, "Data source error for job {JobId}", jobId);
                 _metricsService?.RecordSyncError(jobId, "DataSourceException");
+
+                // Отправляем уведомление
+                if (_alertManager != null)
+                {
+                    await _alertManager.SendAlertAsync(new Alert
+                    {
+                        RuleName = $"Sync_Failed_{jobId}",
+                        Title = $"Synchronization Failed: {job.Name}",
+                        Message = $"Data source error: {ex.Message}",
+                        Severity = "Critical",
+                        Channels = new List<string> { "telegram", "email" },
+                        ThrottleMinutes = 15,
+                        Details = new Dictionary<string, string>
+                        {
+                            ["JobId"] = jobId,
+                            ["JobName"] = job.Name,
+                            ["ErrorType"] = "DataSourceException",
+                            ["Time"] = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")
+                        }
+                    });
+                }
 
                 if (syncRun != null)
                 {

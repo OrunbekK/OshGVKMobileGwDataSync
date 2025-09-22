@@ -1,10 +1,13 @@
-﻿// MobileGwDataSync.Notifications/Channels/EmailChannel.cs
+﻿using MailKit.Net.Smtp;
+using MailKit.Security;
 using Microsoft.Extensions.Logging;
+using MimeKit;
+using MimeKit.Text;
 using MobileGwDataSync.Core.Models.Configuration;
 using MobileGwDataSync.Notifications.Channels.Base;
 using MobileGwDataSync.Notifications.Models;
-using System.Net;
 using System.Net.Mail;
+using SmtpClient = MailKit.Net.Smtp.SmtpClient;
 
 namespace MobileGwDataSync.Notifications.Channels
 {
@@ -34,28 +37,40 @@ namespace MobileGwDataSync.Notifications.Channels
 
             try
             {
-                using var client = new SmtpClient(_settings.SmtpServer, _settings.Port)
-                {
-                    EnableSsl = _settings.UseSsl,
-                    Credentials = new NetworkCredential(_settings.Username, _settings.Password),
-                    Timeout = 30000 // 30 seconds
-                };
-
-                var mailMessage = new MailMessage
-                {
-                    From = new MailAddress(_settings.From),
-                    Subject = FormatSubject(message),
-                    Body = FormatBody(message),
-                    IsBodyHtml = true,
-                    Priority = message.Severity == "Critical" ? MailPriority.High : MailPriority.Normal
-                };
+                var email = new MimeMessage();
+                email.From.Add(MailboxAddress.Parse(_settings.From));
 
                 foreach (var recipient in _settings.Recipients)
                 {
-                    mailMessage.To.Add(recipient);
+                    email.To.Add(MailboxAddress.Parse(recipient));
                 }
 
-                await client.SendMailAsync(mailMessage);
+                email.Subject = FormatSubject(message);
+                email.Body = new TextPart(TextFormat.Html)
+                {
+                    Text = FormatBody(message)
+                };
+
+                // Устанавливаем приоритет
+                if (message.Severity == "Critical")
+                {
+                    email.Priority = MessagePriority.Urgent;
+                }
+
+                using var client = new SmtpClient();
+
+                // Подключаемся к серверу
+                await client.ConnectAsync(
+                    _settings.SmtpServer,
+                    _settings.Port,
+                    _settings.UseSsl ? SecureSocketOptions.SslOnConnect : SecureSocketOptions.StartTls);
+
+                // Аутентификация
+                await client.AuthenticateAsync(_settings.Username, _settings.Password);
+
+                // Отправка
+                await client.SendAsync(email);
+                await client.DisconnectAsync(true);
 
                 _logger.LogInformation("Email sent successfully to {Count} recipients",
                     _settings.Recipients.Count);
@@ -75,6 +90,7 @@ namespace MobileGwDataSync.Notifications.Channels
 
         private string FormatSubject(NotificationMessage message)
         {
+            // Код остается тем же
             var emoji = message.Severity switch
             {
                 "Critical" => "🔴",
