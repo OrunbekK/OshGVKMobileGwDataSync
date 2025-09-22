@@ -366,3 +366,4 @@ FodyWeavers.xsd
 /MobileGwDataSync.Host/appsettings.json
 /MobileGwDataSync.Host/appsettings.Development.json
 /shared/mobilegw_sync.db-wal
+/shared/mobilegw_sync.db
