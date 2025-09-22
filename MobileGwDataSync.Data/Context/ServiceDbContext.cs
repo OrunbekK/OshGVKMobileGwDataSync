@@ -147,7 +147,7 @@ namespace MobileGwDataSync.Data.Context
 
             modelBuilder.Entity<APIKeyEntity>(entity =>
             {
-                entity.ToTable("APIKeys");
+                entity.ToTable("api_keys");
                 entity.HasIndex(e => e.KeyHash).IsUnique();
                 entity.HasIndex(e => e.Name);
             });
