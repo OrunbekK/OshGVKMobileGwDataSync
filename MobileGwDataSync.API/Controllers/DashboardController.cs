@@ -114,7 +114,7 @@ namespace MobileGwDataSync.API.Controllers
         }
 
         [HttpPost("trigger/{jobId}")]
-        public async Task<IActionResult> TriggerJob(string jobId, [FromServices] ISyncService syncService)
+        public async Task<IActionResult> TriggerJob(string jobId)
         {
             try
             {
@@ -122,7 +122,7 @@ namespace MobileGwDataSync.API.Controllers
                 if (job == null)
                     return NotFound(new { message = "Job not found" });
 
-                // Проверяем и очищаем зависшие задачи (старше 30 минут)
+                // Очистка зависших задач
                 var staleTime = DateTime.UtcNow.AddMinutes(-30);
                 var staleJobs = await _context.SyncRuns
                     .Where(r => r.JobId == jobId && r.Status == "InProgress" && r.StartTime < staleTime)
@@ -135,34 +135,26 @@ namespace MobileGwDataSync.API.Controllers
                     staleJob.ErrorMessage = "Job terminated due to timeout";
                 }
 
-                if (staleJobs.Any())
-                {
-                    await _context.SaveChangesAsync();
-                    _logger.LogWarning("Cleaned {Count} stale jobs for {JobId}", staleJobs.Count, jobId);
-                }
+                await _context.SaveChangesAsync();
 
-                // Теперь проверяем актуальные запущенные задачи
+                // Проверка актуальных задач
                 var runningJob = await _context.SyncRuns
-                    .Where(r => r.JobId == jobId && r.Status == "InProgress" && r.StartTime >= staleTime)
+                    .Where(r => r.JobId == jobId && r.Status == "InProgress")
                     .AnyAsync();
 
                 if (runningJob)
                     return BadRequest(new { message = "Job is already running" });
 
-                // Запускаем синхронизацию
-                _ = Task.Run(async () =>
-                {
-                    try
-                    {
-                        await syncService.ExecuteSyncAsync(jobId);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Failed to execute job {JobId}", jobId);
-                    }
-                });
+                // ВАЖНО: Запускаем синхронно для тестирования
+                var result = await _syncService.ExecuteSyncAsync(jobId);
 
-                return Ok(new { message = "Job triggered successfully" });
+                return Ok(new
+                {
+                    message = "Job completed",
+                    success = result.Success,
+                    recordsProcessed = result.RecordsProcessed,
+                    errors = result.Errors
+                });
             }
             catch (Exception ex)
             {
@@ -192,7 +184,7 @@ namespace MobileGwDataSync.API.Controllers
         }
 
         [HttpGet("health-status")]
-        public async Task<IActionResult> GetHealthStatus()
+        public async Task<IActionResult> GetHealthStatus([FromServices] IDataSource dataSource)
         {
             var checks = new Dictionary<string, object>();
 
@@ -200,7 +192,12 @@ namespace MobileGwDataSync.API.Controllers
             try
             {
                 await _context.Database.CanConnectAsync();
-                checks["sqlite"] = new { status = "healthy", message = "Connected" };
+                var jobCount = await _context.SyncJobs.CountAsync();
+                checks["sqlite"] = new
+                {
+                    status = "healthy",
+                    message = $"Connected, {jobCount} jobs configured"
+                };
             }
             catch (Exception ex)
             {
@@ -208,7 +205,19 @@ namespace MobileGwDataSync.API.Controllers
             }
 
             // 1C check
-            checks["onec"] = new { status = "unknown", message = "Check via /health endpoint" };
+            try
+            {
+                var oneCHealthy = await dataSource.TestConnectionAsync();
+                checks["onec"] = new
+                {
+                    status = oneCHealthy ? "healthy" : "unhealthy",
+                    message = oneCHealthy ? "1C API accessible" : "Cannot connect to 1C"
+                };
+            }
+            catch (Exception ex)
+            {
+                checks["onec"] = new { status = "unhealthy", message = ex.Message };
+            }
 
             // Memory check
             var process = System.Diagnostics.Process.GetCurrentProcess();
@@ -216,7 +225,7 @@ namespace MobileGwDataSync.API.Controllers
             checks["memory"] = new
             {
                 status = memoryMB < 500 ? "healthy" : memoryMB < 1000 ? "degraded" : "unhealthy",
-                message = $"{memoryMB} MB",
+                message = $"{memoryMB} MB used",
                 value = memoryMB
             };
 
