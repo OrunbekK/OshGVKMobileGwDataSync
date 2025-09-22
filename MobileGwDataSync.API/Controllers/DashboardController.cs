@@ -8,29 +8,60 @@ namespace MobileGwDataSync.API.Controllers
 {
     [ApiController]
     [Route("[controller]")]
-    [AllowAnonymous] // Для простоты, потом добавите авторизацию
+    //[AllowAnonymous] // Для простоты, потом добавите авторизацию
+    [Authorize]
     public class DashboardController : ControllerBase
     {
         private readonly ServiceDbContext _context;
         private readonly IConfiguration _configuration;
+        private readonly ISyncService _syncService;
         private readonly ILogger<DashboardController> _logger;
 
         public DashboardController(
             ServiceDbContext context,
             IConfiguration configuration,
+            ISyncService syncService,
             ILogger<DashboardController> logger)
         {
             _context = context;
             _configuration = configuration;
+            _syncService = syncService;
             _logger = logger;
         }
 
         [HttpGet]
+        [AllowAnonymous] // Временно для HTML
         [Produces("text/html")]
-        public IActionResult Index()
+        public IActionResult Index([FromQuery] string key)
         {
-            var html = GetDashboardHtml();
+            // Проверяем API ключ из query string
+            if (string.IsNullOrEmpty(key) || !IsValidAPIKey(key))
+            {
+                return Content(@"
+                <html>
+                <body style='font-family: Arial; text-align: center; margin-top: 50px;'>
+                    <h1>Authentication Required</h1>
+                    <p>Please provide a valid API key in the URL: /dashboard?key=YOUR_API_KEY</p>
+                </body>
+                </html>", "text/html");
+            }
+
+            var html = GetDashboardHtml(key); // Передаем ключ в HTML
             return Content(html, "text/html");
+        }
+
+        private bool IsValidAPIKey(string providedKey)
+        {
+            // Хеш ключа и проверка в БД
+            var keyHash = ComputeHash(providedKey);
+            return _context.APIKeys.Any(k => k.KeyHash == keyHash && k.IsActive);
+        }
+
+        private static string ComputeHash(string input)
+        {
+            using var sha256 = System.Security.Cryptography.SHA256.Create();
+            var bytes = sha256.ComputeHash(System.Text.Encoding.UTF8.GetBytes(input));
+            return Convert.ToBase64String(bytes);
         }
 
         [HttpGet("data")]
