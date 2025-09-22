@@ -100,6 +100,10 @@ namespace MobileGwDataSync.Host
             var appSettings = configuration.Get<AppSettings>() ?? new AppSettings();
             services.AddSingleton(appSettings);
 
+            // Notification settings
+            var notificationSettings = appSettings.Notifications ?? new NotificationSettings();
+            services.AddSingleton(notificationSettings);
+
             // Entity Framework - SQLite for service database
             services.AddDbContext<ServiceDbContext>(options =>
                 options.UseSqlite(appSettings.ConnectionStrings.SQLite));
@@ -111,16 +115,24 @@ namespace MobileGwDataSync.Host
             // Repositories
             services.AddScoped<ISyncRunRepository, SyncRunRepository>();
             services.AddScoped<ISyncJobRepository, SyncJobRepository>();
-            services.AddScoped<IDataSource, OneCHttpConnector>();
 
             // Core services with strategies
             services.AddScoped<SubscribersSyncStrategy>();
             services.AddScoped<ControllersSyncStrategy>();
             services.AddScoped<IDataTarget, SqlServerDataTarget>();
+            services.AddScoped<IDataSource, OneCHttpConnector>();
             services.AddScoped<ISyncService, SyncOrchestrator>();
 
-            // Metrics service (даже если пустая реализация)
+            // Metrics service
             services.AddSingleton<IMetricsService, NullMetricsService>();
+
+            // Notification services
+            services.AddScoped<IAlertManager, MobileGwDataSync.Notifications.Services.AlertManager>();
+            services.AddScoped<MobileGwDataSync.Notifications.Channels.EmailChannel>();
+            services.AddScoped<MobileGwDataSync.Notifications.Channels.TelegramChannel>();
+
+            // HTTP client factory для уведомлений
+            services.AddHttpClient();
 
             // HTTP client for 1C
             services.AddHttpClient("OneC", client =>
@@ -179,21 +191,15 @@ namespace MobileGwDataSync.Host
             // Dynamic job scheduler - загружает задачи из БД
             services.AddHostedService<DynamicJobSchedulerService>();
 
+            // Alert monitor service
+            services.AddHostedService<MobileGwDataSync.Monitoring.Services.AlertMonitorService>();
+
             // Health checks
             services.AddHealthChecks()
                 .AddDbContextCheck<ServiceDbContext>("sqlite",
                     failureStatus: Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Degraded)
                 .AddDbContextCheck<BusinessDbContext>("sqlserver",
-                    failureStatus: Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Unhealthy); // Изменено с Critical
-
-            // TODO: Notification services (когда будут готовы)
-            // services.AddScoped<INotificationService, NotificationService>();
-            // services.AddScoped<TelegramChannel>();
-            // services.AddScoped<EmailChannel>();
-
-            // TODO: Monitoring services (когда будут готовы)
-            // services.AddSingleton<IMetricsService, MetricsService>();
-            // services.AddHostedService<MetricsExporterService>();
+                    failureStatus: Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Unhealthy);
         }
 
         private static async Task InitializeDatabaseAsync(IHost host)

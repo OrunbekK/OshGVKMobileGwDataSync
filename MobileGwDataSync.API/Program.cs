@@ -181,6 +181,14 @@ namespace MobileGwDataSync.API
 
                 builder.Services.AddHttpClient();
 
+                builder.Services.AddAuthentication(Security.APIKeyAuthenticationOptions.DefaultScheme)
+                    .AddScheme<Security.APIKeyAuthenticationOptions,
+                    Security.APIKeyAuthenticationHandler>(
+                    Security.APIKeyAuthenticationOptions.DefaultScheme,
+                    options => { options.HeaderName = "X-Api-Key"; });
+
+                builder.Services.AddScoped<MobileGwDataSync.API.Commands.APIKeyManager>();
+
                 // MetricsService registration
                 if (builder.Configuration.GetValue<bool>("Monitoring:Prometheus:Enabled", false))
                     builder.Services.AddSingleton<IMetricsService, MetricsService>();
@@ -394,6 +402,7 @@ namespace MobileGwDataSync.API
                 app.UseCors("Production");
             }
 
+            app.UseAuthentication();
             app.UseAuthorization();
         }
 

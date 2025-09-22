@@ -19,6 +19,8 @@ namespace MobileGwDataSync.Data.Context
 
         public DbSet<JobLockEntity> JobLocks { get; set; } = null!;
 
+        public DbSet<APIKeyEntity> APIKeys { get; set; } = null!;
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
@@ -141,6 +143,13 @@ namespace MobileGwDataSync.Data.Context
             {
                 entity.ToTable("job_locks");
                 entity.HasIndex(e => e.ExpiresAt);
+            });
+
+            modelBuilder.Entity<APIKeyEntity>(entity =>
+            {
+                entity.ToTable("APIKeys");
+                entity.HasIndex(e => e.KeyHash).IsUnique();
+                entity.HasIndex(e => e.Name);
             });
         }
     }
