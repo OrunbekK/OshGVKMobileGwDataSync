@@ -1,0 +1,549 @@
+﻿<!DOCTYPE html>
+<html lang='en'>
+<head>
+    <meta charset='UTF-8'>
+    <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+    <title>MobileGW Sync - Advanced Dashboard</title>
+    <link href='https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css' rel='stylesheet'>
+    <link href='https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css' rel='stylesheet'>
+    <script src='https://cdn.jsdelivr.net/npm/chart.js'></script>
+    <style>
+        :root {
+            --primary-color: #4a90e2;
+            --success-color: #28a745;
+            --danger-color: #dc3545;
+            --warning-color: #ffc107;
+            --dark-color: #2c3e50;
+        }
+
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+
+        .dashboard-container {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            margin: 20px;
+            padding: 30px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+        }
+
+        .metric-card {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.08);
+            transition: transform 0.3s ease;
+            border: none;
+        }
+
+            .metric-card:hover {
+                transform: translateY(-5px);
+                box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+            }
+
+        .metric-icon {
+            width: 60px;
+            height: 60px;
+            border-radius: 15px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            margin-bottom: 15px;
+        }
+
+        .metric-value {
+            font-size: 32px;
+            font-weight: 700;
+            color: var(--dark-color);
+        }
+
+        .metric-label {
+            color: #6c757d;
+            font-size: 14px;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .status-healthy {
+            color: var(--success-color);
+        }
+
+        .status-degraded {
+            color: var(--warning-color);
+        }
+
+        .status-unhealthy {
+            color: var(--danger-color);
+        }
+
+        .nav-pills .nav-link {
+            border-radius: 25px;
+            padding: 10px 25px;
+            margin: 0 5px;
+            transition: all 0.3s ease;
+        }
+
+            .nav-pills .nav-link.active {
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            }
+
+        .table-container {
+            background: white;
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.08);
+        }
+
+        .btn-action {
+            border-radius: 20px;
+            padding: 5px 15px;
+            font-size: 14px;
+        }
+
+        .health-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+            animation: pulse 2s infinite;
+        }
+
+            .health-indicator.healthy {
+                background: var(--success-color);
+            }
+
+            .health-indicator.degraded {
+                background: var(--warning-color);
+            }
+
+            .health-indicator.unhealthy {
+                background: var(--danger-color);
+            }
+
+        @keyframes pulse {
+            0% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.5;
+            }
+
+            100% {
+                opacity: 1;
+            }
+        }
+
+        .auto-refresh-indicator {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: white;
+            padding: 10px 20px;
+            border-radius: 25px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            z-index: 1000;
+        }
+    </style>
+</head>
+<body>
+    <div class='auto-refresh-indicator'>
+        <span class='health-indicator healthy'></span>
+        <span id='refreshStatus'>Auto-refresh: ON</span>
+        <button class='btn btn-sm btn-link' onclick='toggleAutoRefresh()'>
+            <i class='bi bi-pause-fill' id='refreshIcon'></i>
+        </button>
+    </div>
+
+    <div class='dashboard-container'>
+        <div class='d-flex justify-content-between align-items-center mb-4'>
+            <h1 class='display-5 fw-bold'>
+                <i class='bi bi-speedometer2'></i> MobileGW Sync Dashboard
+            </h1>
+            <div>
+                <span class='badge bg-primary' id='serverTime'>--:--:--</span>
+            </div>
+        </div>
+
+        <!-- Nav Tabs -->
+        <ul class='nav nav-pills mb-4' role='tablist'>
+            <li class='nav-item'>
+                <a class='nav-link active' data-bs-toggle='pill' href='#overview'>
+                    <i class='bi bi-grid-3x3-gap'></i> Overview
+                </a>
+            </li>
+            <li class='nav-item'>
+                <a class='nav-link' data-bs-toggle='pill' href='#jobs'>
+                    <i class='bi bi-calendar-check'></i> Jobs
+                </a>
+            </li>
+            <li class='nav-item'>
+                <a class='nav-link' data-bs-toggle='pill' href='#history'>
+                    <i class='bi bi-clock-history'></i> History
+                </a>
+            </li>
+            <li class='nav-item'>
+                <a class='nav-link' data-bs-toggle='pill' href='#health'>
+                    <i class='bi bi-heart-pulse'></i> Health
+                </a>
+            </li>
+        </ul>
+
+        <!-- Tab Content -->
+        <div class='tab-content'>
+            <!-- Overview Tab -->
+            <div class='tab-pane fade show active' id='overview'>
+                <div class='row g-4 mb-4'>
+                    <div class='col-md-3'>
+                        <div class='metric-card'>
+                            <div class='metric-icon bg-primary bg-opacity-10 text-primary'>
+                                <i class='bi bi-arrow-repeat'></i>
+                            </div>
+                            <div class='metric-value' id='totalRuns'>0</div>
+                            <div class='metric-label'>Total Runs (24h)</div>
+                        </div>
+                    </div>
+                    <div class='col-md-3'>
+                        <div class='metric-card'>
+                            <div class='metric-icon bg-success bg-opacity-10 text-success'>
+                                <i class='bi bi-check-circle'></i>
+                            </div>
+                            <div class='metric-value' id='successRate'>0%</div>
+                            <div class='metric-label'>Success Rate</div>
+                        </div>
+                    </div>
+                    <div class='col-md-3'>
+                        <div class='metric-card'>
+                            <div class='metric-icon bg-info bg-opacity-10 text-info'>
+                                <i class='bi bi-database'></i>
+                            </div>
+                            <div class='metric-value' id='recordsProcessed'>0</div>
+                            <div class='metric-label'>Records Today</div>
+                        </div>
+                    </div>
+                    <div class='col-md-3'>
+                        <div class='metric-card'>
+                            <div class='metric-icon bg-warning bg-opacity-10 text-warning'>
+                                <i class='bi bi-lightning'></i>
+                            </div>
+                            <div class='metric-value' id='activeJobs'>0</div>
+                            <div class='metric-label'>Active Jobs</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class='row g-4'>
+                    <div class='col-md-8'>
+                        <div class='table-container'>
+                            <h5 class='mb-3'>Activity Chart (7 Days)</h5>
+                            <canvas id='activityChart' height='80'></canvas>
+                        </div>
+                    </div>
+                    <div class='col-md-4'>
+                        <div class='table-container'>
+                            <h5 class='mb-3'>Status Distribution</h5>
+                            <canvas id='statusChart'></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Jobs Tab -->
+            <div class='tab-pane fade' id='jobs'>
+                <div class='table-container'>
+                    <div class='d-flex justify-content-between align-items-center mb-3'>
+                        <h5>Scheduled Jobs</h5>
+                        <button class='btn btn-primary btn-action' onclick='refreshJobs()'>
+                            <i class='bi bi-arrow-clockwise'></i> Refresh
+                        </button>
+                    </div>
+                    <table class='table'>
+                        <thead>
+                            <tr>
+                                <th>Job Name</th>
+                                <th>Schedule</th>
+                                <th>Last Run</th>
+                                <th>Next Run</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id='jobsTable'></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- History Tab -->
+            <div class='tab-pane fade' id='history'>
+                <div class='table-container'>
+                    <h5 class='mb-3'>Recent Sync History</h5>
+                    <table class='table'>
+                        <thead>
+                            <tr>
+                                <th>Job</th>
+                                <th>Start Time</th>
+                                <th>Duration</th>
+                                <th>Records</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id='historyTable'></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Health Tab -->
+            <div class='tab-pane fade' id='health'>
+                <div class='row g-4' id='healthCards'></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src='https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js'></script>
+
+    <script>
+        let autoRefresh = true;
+        let refreshInterval;
+        let charts = {};
+
+        function toggleAutoRefresh() {
+            autoRefresh = !autoRefresh;
+            document.getElementById('refreshStatus').textContent = `Auto-refresh: ${autoRefresh ? 'ON' : 'OFF'}`;
+            document.getElementById('refreshIcon').className = autoRefresh ? 'bi bi-pause-fill' : 'bi bi-play-fill';
+
+            if (autoRefresh) {
+                startAutoRefresh();
+            } else {
+                clearInterval(refreshInterval);
+            }
+        }
+
+        function startAutoRefresh() {
+            refreshInterval = setInterval(() => {
+                loadDashboardData();
+                loadHealthStatus();
+            }, 10000);
+        }
+
+        async function triggerJob(jobId) {
+            if (!confirm(`Start job ${jobId} now?`)) return;
+
+            try {
+                const response = await fetch(`/dashboard/trigger/${jobId}`, { method: 'POST' });
+                const result = await response.json();
+                alert(result.message);
+                setTimeout(loadDashboardData, 2000);
+            } catch (error) {
+                alert('Failed to trigger job: ' + error);
+            }
+        }
+
+        async function viewLogs(runId) {
+            try {
+                const response = await fetch(`/dashboard/logs/${runId}`);
+                const logs = await response.json();
+
+                const logsHtml = logs.map(log => `
+                    <tr>
+                        <td>${log.stepName}</td>
+                        <td>${log.status}</td>
+                        <td>${log.durationMs || 0}ms</td>
+                        <td>${log.details || '-'}</td>
+                    </tr>
+                `).join('');
+
+                // Here you could open a modal with logs
+                console.log('Logs:', logs);
+            } catch (error) {
+                console.error('Failed to load logs:', error);
+            }
+        }
+
+        async function loadHealthStatus() {
+            try {
+                const response = await fetch('/dashboard/health-status');
+                const health = await response.json();
+
+                const healthCards = Object.entries(health).map(([key, value]) => `
+                    <div class='col-md-4'>
+                        <div class='metric-card'>
+                            <h6 class='text-uppercase'>${key}</h6>
+                            <div class='d-flex align-items-center'>
+                                <span class='health-indicator ${value.status}'></span>
+                                <span class='status-${value.status}'>${value.status.toUpperCase()}</span>
+                            </div>
+                            <small class='text-muted'>${value.message}</small>
+                        </div>
+                    </div>
+                `).join('');
+
+                document.getElementById('healthCards').innerHTML = healthCards;
+            } catch (error) {
+                console.error('Failed to load health status:', error);
+            }
+        }
+
+        async function loadDashboardData() {
+            try {
+                console.log('Loading dashboard data...');
+                const response = await fetch('/dashboard/data');
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                console.log('Dashboard data:', data);
+
+                // Update metrics
+                const totalRuns = data.stats24h?.reduce((sum, s) => sum + s.count, 0) || 0;
+                const successCount = data.stats24h?.find(s => s.status === 'Completed')?.count || 0;
+                const successRate = totalRuns > 0 ? (successCount / totalRuns * 100).toFixed(1) : 0;
+                const totalRecords = data.recentRuns?.reduce((sum, r) => sum + r.recordsProcessed, 0) || 0;
+
+                document.getElementById('totalRuns').textContent = totalRuns;
+                document.getElementById('successRate').textContent = successRate + '%';
+                document.getElementById('recordsProcessed').textContent = totalRecords.toLocaleString();
+                document.getElementById('activeJobs').textContent = data.activeJobs?.length || 0;
+
+                // Update activity chart
+                if (data.chartData && data.chartData.length > 0) {
+                    if (charts.activityChart) {
+                        charts.activityChart.data.labels = data.chartData.map(d =>
+                            new Date(d.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+                        );
+                        charts.activityChart.data.datasets[0].data = data.chartData.map(d => d.success);
+                        charts.activityChart.data.datasets[1].data = data.chartData.map(d => d.failed);
+                        charts.activityChart.update();
+                    } else {
+                        const ctx = document.getElementById('activityChart').getContext('2d');
+                        charts.activityChart = new Chart(ctx, {
+                            type: 'bar',
+                            data: {
+                                labels: data.chartData.map(d =>
+                                    new Date(d.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+                                ),
+                                datasets: [{
+                                    label: 'Success',
+                                    data: data.chartData.map(d => d.success),
+                                    backgroundColor: 'rgba(40, 167, 69, 0.8)'
+                                }, {
+                                    label: 'Failed',
+                                    data: data.chartData.map(d => d.failed),
+                                    backgroundColor: 'rgba(220, 53, 69, 0.8)'
+                                }]
+                            },
+                            options: {
+                                responsive: true,
+                                scales: {
+                                    y: {
+                                        beginAtZero: true,
+                                        ticks: { stepSize: 1 }
+                                    }
+                                }
+                            }
+                        });
+                    }
+                }
+
+                // Update status chart
+                const statusData = {
+                    Completed: data.stats24h?.find(s => s.status === 'Completed')?.count || 0,
+                    Failed: data.stats24h?.find(s => s.status === 'Failed')?.count || 0,
+                    InProgress: data.stats24h?.find(s => s.status === 'InProgress')?.count || 0
+                };
+
+                if (charts.statusChart) {
+                    charts.statusChart.data.datasets[0].data = Object.values(statusData);
+                    charts.statusChart.update();
+                } else {
+                    const ctx2 = document.getElementById('statusChart').getContext('2d');
+                    charts.statusChart = new Chart(ctx2, {
+                        type: 'doughnut',
+                        data: {
+                            labels: Object.keys(statusData),
+                            datasets: [{
+                                data: Object.values(statusData),
+                                backgroundColor: [
+                                    'rgba(40, 167, 69, 0.8)',
+                                    'rgba(220, 53, 69, 0.8)',
+                                    'rgba(255, 193, 7, 0.8)'
+                                ]
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: true
+                        }
+                    });
+                }
+
+                // Update jobs table
+                if (data.activeJobs && data.activeJobs.length > 0) {
+                    const jobsHtml = data.activeJobs.map(job => `
+                <tr>
+                    <td>${job.name}</td>
+                    <td><code>${job.cronExpression}</code></td>
+                    <td>${job.lastRunAt ? new Date(job.lastRunAt).toLocaleString() : 'Never'}</td>
+                    <td>${job.nextRunAt ? new Date(job.nextRunAt).toLocaleString() : '-'}</td>
+                    <td><span class="badge bg-${job.lastRunStatus === 'Completed' ? 'success' : 'danger'}">${job.lastRunStatus || 'Unknown'}</span></td>
+                    <td>
+                        <button class="btn btn-sm btn-primary" onclick="triggerJob('${job.id}')">
+                            <i class="bi bi-play-fill"></i> Run
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+                    document.getElementById('jobsTable').innerHTML = jobsHtml;
+                }
+
+                // Update history table
+                if (data.recentRuns && data.recentRuns.length > 0) {
+                    const historyHtml = data.recentRuns.map(run => `
+                <tr>
+                    <td>${run.jobName}</td>
+                    <td>${new Date(run.startTime).toLocaleString()}</td>
+                    <td>${run.duration ? run.duration.toFixed(1) + 's' : '-'}</td>
+                    <td>${run.recordsProcessed.toLocaleString()}</td>
+                    <td><span class="badge bg-${run.status === 'Completed' ? 'success' : 'danger'}">${run.status}</span></td>
+                    <td>
+                        <button class="btn btn-sm btn-info" onclick="viewLogs('${run.id}')">
+                            <i class="bi bi-list-ul"></i> Logs
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+                    document.getElementById('historyTable').innerHTML = historyHtml;
+                }
+
+            } catch (error) {
+                console.error('Failed to load dashboard data:', error);
+                document.getElementById('totalRuns').textContent = 'Error';
+            }
+        }
+
+        // Добавьте также функцию для обновления задач
+        async function refreshJobs() {
+            await loadDashboardData();
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            loadDashboardData();
+            loadHealthStatus();
+            startAutoRefresh();
+
+            setInterval(() => {
+                document.getElementById('serverTime').textContent = new Date().toLocaleTimeString();
+            }, 1000);
+        });
+    </script>
+</body>
+</html>

@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using MobileGwDataSync.Core.Interfaces;
 using MobileGwDataSync.Data.Context;
 
 namespace MobileGwDataSync.API.Controllers
@@ -12,11 +13,16 @@ namespace MobileGwDataSync.API.Controllers
     {
         private readonly ServiceDbContext _context;
         private readonly IConfiguration _configuration;
+        private readonly ILogger<DashboardController> _logger;
 
-        public DashboardController(ServiceDbContext context, IConfiguration configuration)
+        public DashboardController(
+            ServiceDbContext context,
+            IConfiguration configuration,
+            ILogger<DashboardController> logger)
         {
             _context = context;
             _configuration = configuration;
+            _logger = logger;
         }
 
         [HttpGet]
@@ -105,6 +111,116 @@ namespace MobileGwDataSync.API.Controllers
                 activeJobs,
                 serverTime = now
             });
+        }
+
+        [HttpPost("trigger/{jobId}")]
+        public async Task<IActionResult> TriggerJob(string jobId, [FromServices] ISyncService syncService)
+        {
+            try
+            {
+                var job = await _context.SyncJobs.FindAsync(jobId);
+                if (job == null)
+                    return NotFound(new { message = "Job not found" });
+
+                // Проверяем и очищаем зависшие задачи (старше 30 минут)
+                var staleTime = DateTime.UtcNow.AddMinutes(-30);
+                var staleJobs = await _context.SyncRuns
+                    .Where(r => r.JobId == jobId && r.Status == "InProgress" && r.StartTime < staleTime)
+                    .ToListAsync();
+
+                foreach (var staleJob in staleJobs)
+                {
+                    staleJob.Status = "Failed";
+                    staleJob.EndTime = DateTime.UtcNow;
+                    staleJob.ErrorMessage = "Job terminated due to timeout";
+                }
+
+                if (staleJobs.Any())
+                {
+                    await _context.SaveChangesAsync();
+                    _logger.LogWarning("Cleaned {Count} stale jobs for {JobId}", staleJobs.Count, jobId);
+                }
+
+                // Теперь проверяем актуальные запущенные задачи
+                var runningJob = await _context.SyncRuns
+                    .Where(r => r.JobId == jobId && r.Status == "InProgress" && r.StartTime >= staleTime)
+                    .AnyAsync();
+
+                if (runningJob)
+                    return BadRequest(new { message = "Job is already running" });
+
+                // Запускаем синхронизацию
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await syncService.ExecuteSyncAsync(jobId);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Failed to execute job {JobId}", jobId);
+                    }
+                });
+
+                return Ok(new { message = "Job triggered successfully" });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to trigger job {JobId}", jobId);
+                return StatusCode(500, new { message = ex.Message });
+            }
+        }
+
+        [HttpGet("logs/{runId}")]
+        public async Task<IActionResult> GetRunLogs(Guid runId)
+        {
+            var steps = await _context.SyncRunSteps
+                .Where(s => s.RunId == runId)
+                .OrderBy(s => s.StartTime)
+                .Select(s => new
+                {
+                    s.StepName,
+                    s.StartTime,
+                    s.EndTime,
+                    s.Status,
+                    s.Details,
+                    s.DurationMs
+                })
+                .ToListAsync();
+
+            return Ok(steps);
+        }
+
+        [HttpGet("health-status")]
+        public async Task<IActionResult> GetHealthStatus()
+        {
+            var checks = new Dictionary<string, object>();
+
+            // SQLite check
+            try
+            {
+                await _context.Database.CanConnectAsync();
+                checks["sqlite"] = new { status = "healthy", message = "Connected" };
+            }
+            catch (Exception ex)
+            {
+                checks["sqlite"] = new { status = "unhealthy", message = ex.Message };
+            }
+
+            // 1C check
+            checks["onec"] = new { status = "unknown", message = "Check via /health endpoint" };
+
+            // Memory check
+            var process = System.Diagnostics.Process.GetCurrentProcess();
+            var memoryMB = process.WorkingSet64 / (1024 * 1024);
+            checks["memory"] = new
+            {
+                status = memoryMB < 500 ? "healthy" : memoryMB < 1000 ? "degraded" : "unhealthy",
+                message = $"{memoryMB} MB",
+                value = memoryMB
+            };
+
+            return Ok(checks);
         }
 
         private string GetDashboardHtml()

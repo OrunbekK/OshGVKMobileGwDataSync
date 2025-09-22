@@ -355,6 +355,7 @@ namespace MobileGwDataSync.API
             app.UseResponseCompression();
             app.UseResponseCaching();
             app.UseRateLimiter();
+            app.UseStaticFiles();
 
             app.UseMiddleware<APIIPRestrictionMiddleware>();
 
