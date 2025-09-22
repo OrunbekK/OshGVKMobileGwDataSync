@@ -433,6 +433,10 @@ namespace MobileGwDataSync.API
             app.UseResponseCaching();
             app.UseRateLimiter();
             app.UseStaticFiles();
+            app.UseDefaultFiles(new DefaultFilesOptions
+            {
+                DefaultFileNames = new List<string> { "index.html" }
+            });
 
             app.UseMiddleware<APIIPRestrictionMiddleware>();
 
