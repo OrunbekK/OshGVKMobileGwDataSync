@@ -100,6 +100,11 @@ namespace MobileGwDataSync.Core.Services
                         _logger.LogWarning("No data received from source");
                     }
 
+                    if (fetchedData != null)
+                    {
+                        _metricsService?.RecordRecordsFetched(jobId, fetchedData.TotalRows);
+                    }
+
                     return $"Fetched {fetchedData?.TotalRows ?? 0} records";
                 }, cancellationToken);
 

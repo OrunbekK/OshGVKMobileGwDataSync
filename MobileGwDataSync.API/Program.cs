@@ -13,6 +13,7 @@ using MobileGwDataSync.Data.Services;
 using MobileGwDataSync.Data.SqlServer;
 using MobileGwDataSync.Integration.OneC;
 using MobileGwDataSync.Monitoring.Metrics;
+using MobileGwDataSync.Monitoring.Services;
 using Prometheus;
 using Serilog;
 using Serilog.Events;
@@ -203,6 +204,8 @@ namespace MobileGwDataSync.API
                             $"Memory usage: {allocated / (1024 * 1024)} MB",
                             data: data);
                     }, tags: new[] { "system" });
+
+                builder.Services.AddHostedService<HealthMonitorService>();
 
                 // CORS
                 builder.Services.AddCors(options =>
