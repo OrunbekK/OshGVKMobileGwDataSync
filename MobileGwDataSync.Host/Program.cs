@@ -10,6 +10,7 @@ using MobileGwDataSync.Host.Services;
 using MobileGwDataSync.Host.Services.HostedServices;
 using MobileGwDataSync.Integration.OneC;
 using MobileGwDataSync.Integration.OneC.Strategies;
+using MobileGwDataSync.Monitoring.Metrics;
 using Quartz;
 using Serilog;
 using Serilog.Events;
@@ -103,18 +104,24 @@ namespace MobileGwDataSync.Host
             services.AddDbContext<ServiceDbContext>(options =>
                 options.UseSqlite(appSettings.ConnectionStrings.SQLite));
 
+            // Entity Framework - SQL Server for business database
+            services.AddDbContext<BusinessDbContext>(options =>
+                options.UseSqlServer(appSettings.ConnectionStrings.SqlServer));
+
             // Repositories
             services.AddScoped<ISyncRunRepository, SyncRunRepository>();
             services.AddScoped<ISyncJobRepository, SyncJobRepository>();
 
-            // Core services
+            // Core services - UniversalOneCConnector with strategies
             services.AddScoped<IDataSource, UniversalOneCConnector>();
             services.AddScoped<ISyncStrategyFactory, SyncStrategyFactory>();
             services.AddScoped<SubscribersSyncStrategy>();
             services.AddScoped<ControllersSyncStrategy>();
-
             services.AddScoped<IDataTarget, SqlServerDataTarget>();
             services.AddScoped<ISyncService, SyncOrchestrator>();
+
+            // Metrics service (даже если пустая реализация)
+            services.AddSingleton<IMetricsService, NullMetricsService>();
 
             // HTTP client for 1C
             services.AddHttpClient("OneC", client =>
@@ -134,66 +141,66 @@ namespace MobileGwDataSync.Host
                 client.DefaultRequestHeaders.Authorization =
                     new System.Net.Http.Headers.AuthenticationHeaderValue("Basic", authValue);
 
-                // Логирование для отладки
+                // Добавляем заголовки
+                client.DefaultRequestHeaders.Add("Accept", "application/json");
+                client.DefaultRequestHeaders.Add("User-Agent", "MobileGwDataSync/1.0");
+
                 Log.Information($"Configured OneC HttpClient with BaseAddress: {client.BaseAddress}");
             });
 
-            // TODO: Register monitoring services
-            // services.AddSingleton<IMetricsService, MetricsService>();
-
-            // TODO: Register notification services
-            // services.AddScoped<INotificationService, NotificationService>();
-
-            /*
-            // Configure Quartz.NET static
+            // Quartz.NET configuration
             services.AddQuartz(q =>
             {
-                // Создаём идентификатор для задачи
-                var jobKey = new JobKey("subscribers-sync-job");
+                // UseMicrosoftDependencyInjectionJobFactory больше не нужен - это поведение по умолчанию
 
-                // Регистрируем задачу
-                q.AddJob<DataSyncJob>(opts => opts
-                    .WithIdentity(jobKey)
-                    .UsingJobData("JobId", "subscribers-sync"));
+                // Устанавливаем имя планировщика
+                q.SchedulerId = "AUTO";
+                q.SchedulerName = "MobileGwDataSync";
 
-                // Создаём триггер с расписанием (каждый час)
-                q.AddTrigger(opts => opts
-                    .ForJob(jobKey)
-                    .WithIdentity("subscribers-sync-trigger")
-                    .WithCronSchedule("0 0 * * * ?")
-                    .StartNow()
-                    .WithDescription("Hourly sync of subscribers"));
-            });*/
-            services.AddQuartz(q =>
-            {
-                // Пустая конфигурация - задачи будут добавляться динамически
+                // Настройки пула потоков
+                q.UseDefaultThreadPool(tp =>
+                {
+                    tp.MaxConcurrency = 10;
+                });
+
+                // Настройки хранилища задач (в памяти)
+                q.UseInMemoryStore();
             });
 
             // Добавляем Quartz hosted service
-            services.AddQuartzHostedService(q =>
+            services.AddQuartzHostedService(options =>
             {
-                q.WaitForJobsToComplete = true;
-                q.AwaitApplicationStarted = true;
+                // Ждем завершения задач при остановке
+                options.WaitForJobsToComplete = true;
+
+                // Ждем полного запуска приложения
+                options.AwaitApplicationStarted = true;
             });
 
+            // Dynamic job scheduler - загружает задачи из БД
             services.AddHostedService<DynamicJobSchedulerService>();
 
-            // TODO: Add alternative hosted services
-            // services.AddHostedService<SyncHostedService>();
-            // services.AddHostedService<MetricsExporterService>();
-
-            // Health checks
-            services.AddHealthChecks()
-                .AddDbContextCheck<ServiceDbContext>("sqlite");
-
-            // TODO: Add SQL Server health check
-            // .AddSqlServer(appSettings.ConnectionStrings.SqlServer, name: "sqlserver");
-
-            // Визуализация для консольного режима
+            // Console status service - только в интерактивном режиме
             if (Environment.UserInteractive)
             {
                 services.AddHostedService<ConsoleStatusService>();
             }
+
+            // Health checks
+            services.AddHealthChecks()
+                .AddDbContextCheck<ServiceDbContext>("sqlite",
+                    failureStatus: Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Degraded)
+                .AddDbContextCheck<BusinessDbContext>("sqlserver",
+                    failureStatus: Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Unhealthy); // Изменено с Critical
+
+            // TODO: Notification services (когда будут готовы)
+            // services.AddScoped<INotificationService, NotificationService>();
+            // services.AddScoped<TelegramChannel>();
+            // services.AddScoped<EmailChannel>();
+
+            // TODO: Monitoring services (когда будут готовы)
+            // services.AddSingleton<IMetricsService, MetricsService>();
+            // services.AddHostedService<MetricsExporterService>();
         }
 
         private static async Task InitializeDatabaseAsync(IHost host)

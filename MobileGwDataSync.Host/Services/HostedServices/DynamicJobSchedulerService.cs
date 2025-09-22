@@ -26,15 +26,22 @@ namespace MobileGwDataSync.Host.Services.HostedServices
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            // Ждём инициализации
+            // Ждём инициализации Quartz
             await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
 
             var scheduler = await _schedulerFactory.GetScheduler(stoppingToken);
 
+            // Ждем пока scheduler запустится
+            while (!scheduler.IsStarted && !stoppingToken.IsCancellationRequested)
+            {
+                _logger.LogInformation("Waiting for Quartz scheduler to start...");
+                await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken);
+            }
+
             // Загружаем задачи из БД и создаём jobs
             await LoadJobsFromDatabase(scheduler, stoppingToken);
 
-            // Периодически проверяем изменения в БД (каждую минуту)
+            // Периодически проверяем изменения в БД
             while (!stoppingToken.IsCancellationRequested)
             {
                 await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken);

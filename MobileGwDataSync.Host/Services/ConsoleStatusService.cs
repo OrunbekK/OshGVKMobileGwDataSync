@@ -26,14 +26,12 @@ namespace MobileGwDataSync.Host.Services
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            // Показываем статус только в Development режиме или консольном запуске
             if (!_environment.IsDevelopment() && !Environment.UserInteractive)
                 return;
 
-            // Ждем инициализации Quartz
-            await Task.Delay(2000, stoppingToken);
+            // Ждем пока DynamicJobSchedulerService загрузит задачи
+            await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken); // Увеличить задержку
 
-            // Выводим заголовок
             Console.Clear();
             WriteHeader();
 
@@ -50,25 +48,48 @@ namespace MobileGwDataSync.Host.Services
             try
             {
                 var scheduler = await _schedulerFactory.GetScheduler();
-                if (scheduler == null || !scheduler.IsStarted) return;
+
+                // Проверяем что scheduler инициализирован
+                if (scheduler == null)
+                {
+                    _logger.LogWarning("Scheduler is null");
+                    return;
+                }
+
+                if (!scheduler.IsStarted)
+                {
+                    _logger.LogWarning("Scheduler is not started");
+                    return;
+                }
 
                 var jobKeys = await scheduler.GetJobKeys(GroupMatcher<JobKey>.AnyGroup());
-                var executingJobs = await scheduler.GetCurrentlyExecutingJobs();
 
+                _logger.LogDebug("Found {Count} jobs in scheduler", jobKeys.Count);
+
+                if (!jobKeys.Any())
+                {
+                    // Если задач нет, очищаем статусы
+                    lock (_statusLock)
+                    {
+                        _jobStatuses.Clear();
+                    }
+                    return;
+                }
+
+                var executingJobs = await scheduler.GetCurrentlyExecutingJobs();
                 var newStatuses = new Dictionary<string, JobStatusInfo>();
 
                 foreach (var jobKey in jobKeys)
                 {
                     var jobDetail = await scheduler.GetJobDetail(jobKey);
+                    if (jobDetail == null) continue;
 
-                    // Получаем триггеры именно для этой задачи
+                    // Получаем все триггеры для этой задачи
                     var triggers = await scheduler.GetTriggersOfJob(jobKey);
                     var trigger = triggers.FirstOrDefault();
 
                     var isRunning = executingJobs.Any(j => j.JobDetail.Key.Equals(jobKey));
-
-                    // Получаем имя из JobDataMap
-                    var jobName = jobDetail?.JobDataMap.GetString("JobName") ?? jobKey.Name;
+                    var jobName = jobDetail.JobDataMap.GetString("JobName") ?? jobKey.Name;
 
                     var status = new JobStatusInfo
                     {
@@ -79,37 +100,24 @@ namespace MobileGwDataSync.Host.Services
                         PreviousFireTime = trigger?.GetPreviousFireTimeUtc()?.LocalDateTime
                     };
 
-                    // Логируем для отладки
-                    if (trigger != null)
-                    {
-                        _logger.LogDebug("Job {JobId}: Next fire time: {NextFire}, Previous: {PrevFire}",
-                            jobKey.Name,
-                            status.NextFireTime,
-                            status.PreviousFireTime);
-                    }
-
                     // Сохраняем счетчик выполнений если он был
                     if (_jobStatuses.TryGetValue(jobKey.Name, out var oldStatus))
                     {
                         status.ExecutionCount = oldStatus.ExecutionCount;
+                        status.LastExecutionTime = oldStatus.LastExecutionTime;
 
                         // Увеличиваем счетчик если задача завершилась
-                        if (oldStatus.IsRunning && !status.IsRunning &&
-                            oldStatus.LastExecutionTime != null)
+                        if (oldStatus.IsRunning && !status.IsRunning)
                         {
                             status.ExecutionCount++;
+                            status.LastExecutionTime = DateTime.Now;
                         }
-
-                        status.LastExecutionTime = oldStatus.LastExecutionTime;
-                    }
-
-                    // Обновляем LastExecutionTime если задача только что запустилась
-                    if (!oldStatus?.IsRunning ?? false && status.IsRunning)
-                    {
-                        status.LastExecutionTime = DateTime.Now;
                     }
 
                     newStatuses[jobKey.Name] = status;
+
+                    _logger.LogDebug("Job status: {JobId} - Next: {Next}, Previous: {Previous}",
+                        jobKey.Name, status.NextFireTime, status.PreviousFireTime);
                 }
 
                 lock (_statusLock)

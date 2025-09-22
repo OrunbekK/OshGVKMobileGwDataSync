@@ -125,14 +125,46 @@ namespace MobileGwDataSync.Integration.OneC.Strategies
 
         public override void PopulateTVP(DataTable table, DataTableDTO data)
         {
+            _logger.LogInformation("Starting to populate TVP for {Count} controllers", data.Rows.Count);
+
             foreach (var row in data.Rows)
             {
+                var uid = row.GetValueOrDefault("UID", Guid.Empty);
+                var controller = row.GetValueOrDefault("Controller", string.Empty);
+                var controllerId = row.GetValueOrDefault("ControllerId", string.Empty);
+
+                _logger.LogDebug("Processing controller: UID={UID}, Controller={Name}, ControllerId={ID}",
+                    uid, controller, controllerId);
+
+                // Проверяем и генерируем UID если пустой
+                if (uid == null || uid.Equals(Guid.Empty))
+                {
+                    if (!string.IsNullOrEmpty(controllerId?.ToString()))
+                    {
+                        using (var md5 = System.Security.Cryptography.MD5.Create())
+                        {
+                            var hash = md5.ComputeHash(
+                                System.Text.Encoding.UTF8.GetBytes($"controller_{controllerId}")
+                            );
+                            uid = new Guid(hash);
+                        }
+                        _logger.LogInformation("Generated UID {UID} for controller {ID}", uid, controllerId);
+                    }
+                    else
+                    {
+                        _logger.LogError("Cannot add controller without UID and ControllerId");
+                        continue;
+                    }
+                }
+
                 var dataRow = table.NewRow();
-                dataRow["UID"] = row.GetValueOrDefault("UID", string.Empty);
-                dataRow["Controller"] = row.GetValueOrDefault("Controller", string.Empty);
-                dataRow["ControllerId"] = row.GetValueOrDefault("ControllerId", string.Empty);
+                dataRow["UID"] = uid;
+                dataRow["Controller"] = controller ?? string.Empty;
+                dataRow["ControllerId"] = controllerId ?? string.Empty;
                 table.Rows.Add(dataRow);
             }
+
+            _logger.LogInformation("TVP populated with {Count} rows", table.Rows.Count);
         }
     }
 }
