@@ -99,8 +99,7 @@ namespace MobileGwDataSync.Core.Services
                     {
                         _logger.LogWarning("No data received from source");
                     }
-
-                    if (fetchedData != null)
+                    else
                     {
                         _metricsService?.RecordRecordsFetched(jobId, fetchedData.TotalRows);
                     }
@@ -228,9 +227,13 @@ namespace MobileGwDataSync.Core.Services
                     }
                 };
             }
+            // В методе ExecuteSyncAsync в MobileGwDataSync.Core/Services/SyncOrchestrator.cs
+            // Замените существующие catch блоки на эти:
+
             catch (OperationCanceledException)
             {
                 _logger.LogWarning("Sync cancelled for job {JobId}", jobId);
+                _metricsService?.RecordSyncError(jobId, "Cancelled");
 
                 if (syncRun != null)
                 {
@@ -242,9 +245,79 @@ namespace MobileGwDataSync.Core.Services
                 await _dataTarget.FinalizeTargetAsync(false, CancellationToken.None);
                 throw;
             }
-            catch (Exception ex)
+            catch (DataSourceException ex)
             {
-                _logger.LogError(ex, "Sync failed for job {JobId}", jobId);
+                _logger.LogError(ex, "Data source error for job {JobId}", jobId);
+                _metricsService?.RecordSyncError(jobId, "DataSourceException");
+
+                if (syncRun != null)
+                {
+                    syncRun.Status = SyncStatus.Failed;
+                    syncRun.EndTime = DateTime.UtcNow;
+                    syncRun.ErrorMessage = $"Data source error: {ex.Message}";
+                    await _repository.UpdateRunAsync(syncRun, CancellationToken.None);
+                }
+
+                await _dataTarget.FinalizeTargetAsync(false, CancellationToken.None);
+
+                return new SyncResultDTO
+                {
+                    Success = false,
+                    RecordsProcessed = syncRun?.RecordsProcessed ?? 0,
+                    Duration = stopwatch.Elapsed,
+                    Errors = new List<string> { ex.Message }
+                };
+            }
+            catch (DataTargetException ex)
+            {
+                _logger.LogError(ex, "Data target error for job {JobId}", jobId);
+                _metricsService?.RecordSyncError(jobId, "DataTargetException");
+
+                if (syncRun != null)
+                {
+                    syncRun.Status = SyncStatus.Failed;
+                    syncRun.EndTime = DateTime.UtcNow;
+                    syncRun.ErrorMessage = $"Data target error: {ex.Message}";
+                    await _repository.UpdateRunAsync(syncRun, CancellationToken.None);
+                }
+
+                await _dataTarget.FinalizeTargetAsync(false, CancellationToken.None);
+
+                return new SyncResultDTO
+                {
+                    Success = false,
+                    RecordsProcessed = syncRun?.RecordsProcessed ?? 0,
+                    Duration = stopwatch.Elapsed,
+                    Errors = new List<string> { ex.Message }
+                };
+            }
+            catch (ValidationException ex)
+            {
+                _logger.LogError(ex, "Validation error for job {JobId}", jobId);
+                _metricsService?.RecordSyncError(jobId, "ValidationException");
+
+                if (syncRun != null)
+                {
+                    syncRun.Status = SyncStatus.Failed;
+                    syncRun.EndTime = DateTime.UtcNow;
+                    syncRun.ErrorMessage = $"Validation error: {ex.Message}";
+                    await _repository.UpdateRunAsync(syncRun, CancellationToken.None);
+                }
+
+                await _dataTarget.FinalizeTargetAsync(false, CancellationToken.None);
+
+                return new SyncResultDTO
+                {
+                    Success = false,
+                    RecordsProcessed = syncRun?.RecordsProcessed ?? 0,
+                    Duration = stopwatch.Elapsed,
+                    Errors = ex.ValidationErrors ?? new List<string> { ex.Message }
+                };
+            }
+            catch (SyncException ex)
+            {
+                _logger.LogError(ex, "Sync error for job {JobId}. Error code: {ErrorCode}", jobId, ex.ErrorCode);
+                _metricsService?.RecordSyncError(jobId, ex.ErrorCode);
 
                 if (syncRun != null)
                 {
@@ -255,7 +328,29 @@ namespace MobileGwDataSync.Core.Services
                 }
 
                 await _dataTarget.FinalizeTargetAsync(false, CancellationToken.None);
+
+                return new SyncResultDTO
+                {
+                    Success = false,
+                    RecordsProcessed = syncRun?.RecordsProcessed ?? 0,
+                    Duration = stopwatch.Elapsed,
+                    Errors = new List<string> { ex.Message }
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unexpected error during sync for job {JobId}", jobId);
                 _metricsService?.RecordSyncError(jobId, ex.GetType().Name);
+
+                if (syncRun != null)
+                {
+                    syncRun.Status = SyncStatus.Failed;
+                    syncRun.EndTime = DateTime.UtcNow;
+                    syncRun.ErrorMessage = ex.Message;
+                    await _repository.UpdateRunAsync(syncRun, CancellationToken.None);
+                }
+
+                await _dataTarget.FinalizeTargetAsync(false, CancellationToken.None);
 
                 return new SyncResultDTO
                 {

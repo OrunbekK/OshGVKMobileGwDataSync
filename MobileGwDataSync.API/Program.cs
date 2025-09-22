@@ -303,6 +303,7 @@ namespace MobileGwDataSync.API
             app.UseResponseCompression();
             app.UseResponseCaching();
             app.UseRateLimiter();
+            app.UseMiddleware<MobileGwDataSync.API.Middleware.MetricsMiddleware>();
 
             // Serilog request logging
             app.UseSerilogRequestLogging(options =>
@@ -386,6 +387,8 @@ namespace MobileGwDataSync.API
 
         private static void ConfigureEndpoints(WebApplication app)
         {
+            app.UseHttpMetrics();
+
             // Prometheus metrics
             app.UseMetricServer();
 
