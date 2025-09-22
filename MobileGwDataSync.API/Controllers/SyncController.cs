@@ -1,5 +1,6 @@
 ﻿using Asp.Versioning;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using MobileGwDataSync.API.Models.Responses.Jobs;
 using MobileGwDataSync.API.Models.Responses.Metrics;
@@ -32,6 +33,7 @@ namespace MobileGwDataSync.API.Controllers
         /// Получить историю синхронизаций
         /// </summary>
         [HttpGet("history")]
+        [EnableRateLimiting("ReadOperations")]
         public async Task<ActionResult<IEnumerable<SyncRunDTO>>> GetSyncHistory(
             [FromQuery] string? jobId = null,
             [FromQuery] int limit = 50,
@@ -135,6 +137,7 @@ namespace MobileGwDataSync.API.Controllers
         /// Запустить синхронизацию для задачи
         /// </summary>
         [HttpPost("trigger/{jobId}")]
+        [EnableRateLimiting("SyncOperations")]
         public async Task<ActionResult<SyncTriggerResponseDTO>> TriggerSync(string jobId)
         {
             var job = await _context.SyncJobs.FindAsync(jobId);

@@ -119,6 +119,31 @@ namespace MobileGwDataSync.API
                                 QueueLimit = 2,
                                 Window = TimeSpan.FromMinutes(1)
                             }));
+
+                    options.AddPolicy("SyncOperations", httpContext =>
+                        RateLimitPartition.GetFixedWindowLimiter(
+                            partitionKey: httpContext.Request.Headers["X-Api-Key"].FirstOrDefault() ??
+                                         httpContext.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
+                            factory: _ => new FixedWindowRateLimiterOptions
+                            {
+                                AutoReplenishment = true,
+                                PermitLimit = 5,
+                                QueueLimit = 2,
+                                Window = TimeSpan.FromMinutes(1)
+                            }));
+
+                    // Политика для чтения данных
+                    options.AddPolicy("ReadOperations", httpContext =>
+                        RateLimitPartition.GetFixedWindowLimiter(
+                            partitionKey: httpContext.Request.Headers["X-Api-Key"].FirstOrDefault() ??
+                                         httpContext.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
+                            factory: _ => new FixedWindowRateLimiterOptions
+                            {
+                                AutoReplenishment = true,
+                                PermitLimit = 60,
+                                QueueLimit = 10,
+                                Window = TimeSpan.FromMinutes(1)
+                            }));
                 });
 
                 // Response Caching
