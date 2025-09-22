@@ -20,6 +20,13 @@ EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{02EA681E-C7D8-13C7-8484-4AC65E1B71E8}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "docs", "docs", "{A8667A51-EFCB-47ED-ABBB-D38D3D993D0D}"
+	ProjectSection(SolutionItems) = preProject
+		API.md = API.md
+		QUICKSTART.md = QUICKSTART.md
+		README.md = README.md
+		CONFIGURATION.md = CONFIGURATION.md
+		DEPLOYMENT.md = DEPLOYMENT.md
+	EndProjectSection
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "shared", "shared", "{F052651E-FC43-47CD-AB99-8590F1F46777}"
 EndProject

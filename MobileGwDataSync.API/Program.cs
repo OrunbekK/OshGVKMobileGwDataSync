@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc.ApiExplorer;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi.Models;
+using MobileGwDataSync.API.Security;
 using MobileGwDataSync.Core.Interfaces;
 using MobileGwDataSync.Core.Models.Configuration;
 using MobileGwDataSync.Core.Services;
@@ -348,7 +349,10 @@ namespace MobileGwDataSync.API
             app.UseResponseCompression();
             app.UseResponseCaching();
             app.UseRateLimiter();
-            app.UseMiddleware<MobileGwDataSync.API.Middleware.MetricsMiddleware>();
+
+            app.UseMiddleware<APIIPRestrictionMiddleware>();
+
+            app.UseMiddleware<Middleware.MetricsMiddleware>();
 
             // Serilog request logging
             app.UseSerilogRequestLogging(options =>
