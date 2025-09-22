@@ -83,7 +83,7 @@ namespace MobileGwDataSync.Host.Services.HostedServices
                     // Создаём trigger с расписанием из БД
                     var trigger = TriggerBuilder.Create()
                         .WithIdentity($"{jobEntity.Id}-trigger")
-                        .WithCronSchedule(jobEntity.CronExpression)
+                        .WithCronSchedule(jobEntity.CronExpression, x => x.WithMisfireHandlingInstructionFireAndProceed())
                         .StartNow()
                         .Build();
 

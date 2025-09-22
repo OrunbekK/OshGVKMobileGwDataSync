@@ -6,29 +6,28 @@ namespace MobileGwDataSync.Core.Interfaces
     /// </summary>
     public interface IMetricsService
     {
-        /// <summary>
-        /// Records the start of a synchronization job
-        /// </summary>
+        // Sync metrics
         void RecordSyncStart(string jobName);
-
-        /// <summary>
-        /// Records the completion of a synchronization job
-        /// </summary>
         void RecordSyncComplete(string jobName, bool success, int recordsProcessed, TimeSpan duration);
-
-        /// <summary>
-        /// Records a failure during a synchronization job
-        /// </summary>
         void RecordSyncError(string jobName, string errorType);
-
-        /// <summary>
-        /// Records the duration of a specific step in the sync process
-        /// </summary>
         void RecordStepDuration(string jobName, string stepName, TimeSpan duration);
 
-        /// <summary>
-        /// Gets current metrics as a dictionary
-        /// </summary>
+        // Data metrics
+        void RecordRecordsFetched(string jobName, int count);
+        void RecordRecordsProcessed(string jobName, int count);
+        void RecordRecordsFailed(string jobName, int count);
+
+        // System metrics
+        void RecordMemoryUsage(long memoryMB);
+        void RecordDatabaseConnections(string databaseName, int count);
+        void UpdateDataSourceHealth(string sourceName, string sourceType, bool isHealthy);
+
+        // HTTP metrics
+        void RecordHttpRequest(string method, string endpoint, int statusCode, TimeSpan duration);
+        void IncrementHttpRequestsInProgress();
+        void DecrementHttpRequestsInProgress();
+
+        // Get current metrics
         Dictionary<string, double> GetCurrentMetrics();
     }
 }

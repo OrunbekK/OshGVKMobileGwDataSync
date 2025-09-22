@@ -160,7 +160,7 @@ namespace MobileGwDataSync.Host
                 // Настройки пула потоков
                 q.UseDefaultThreadPool(tp =>
                 {
-                    tp.MaxConcurrency = 10;
+                    tp.MaxConcurrency = 1;
                 });
 
                 // Настройки хранилища задач (в памяти)
@@ -179,12 +179,6 @@ namespace MobileGwDataSync.Host
 
             // Dynamic job scheduler - загружает задачи из БД
             services.AddHostedService<DynamicJobSchedulerService>();
-
-            // Console status service - только в интерактивном режиме
-            /*if (Environment.UserInteractive)
-            {
-                services.AddHostedService<ConsoleStatusService>();
-            }*/
 
             // Health checks
             services.AddHealthChecks()
