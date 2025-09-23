@@ -5,6 +5,9 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UserSecretsId>dotnet-MobileGwDataSync.Host-fa7c4226-3557-4081-abfc-9fea608e9161</UserSecretsId>
+    <OutputType>Exe</OutputType>
+    <!-- Отключаем ошибку дублирования файлов -->
+    <ErrorOnDuplicatePublishOutputFiles>false</ErrorOnDuplicatePublishOutputFiles>
   </PropertyGroup>
 
   <ItemGroup>
@@ -15,14 +18,14 @@
     <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore" Version="8.0.20" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.1" />
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.0.1" />
-    
+
     <PackageReference Include="Quartz" Version="3.15.0" />
     <PackageReference Include="Quartz.Extensions.Hosting" Version="3.15.0" />
     <PackageReference Include="Quartz.Serialization.Json" Version="3.15.0" />
     <PackageReference Include="Quartz.Extensions.DependencyInjection" Version="3.15.0" />
 
     <PackageReference Include="StackExchange.Redis" Version="2.9.17" />
-    
+
     <PackageReference Include="Serilog.Extensions.Hosting" Version="8.0.0" />
     <PackageReference Include="Serilog.Settings.Configuration" Version="8.0.4" />
     <PackageReference Include="Serilog.Sinks.Console" Version="6.0.0" />
@@ -30,11 +33,34 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\MobileGwDataSync.API\MobileGwDataSync.API.csproj" />
+    <!-- API проект с исключением контент-файлов -->
+    <ProjectReference Include="..\MobileGwDataSync.API\MobileGwDataSync.API.csproj">
+      <Private>false</Private>
+      <ExcludeAssets>contentFiles;build</ExcludeAssets>
+    </ProjectReference>
+
     <ProjectReference Include="..\MobileGwDataSync.Core\MobileGwDataSync.Core.csproj" />
     <ProjectReference Include="..\MobileGwDataSync.Data\MobileGwDataSync.Data.csproj" />
     <ProjectReference Include="..\MobileGwDataSync.Integration\MobileGwDataSync.Integration.csproj" />
-
     <ProjectReference Include="..\MobileGwDataSync.Notifications\MobileGwDataSync.Notifications.csproj" />
   </ItemGroup>
+
+  <!-- Исключаем все appsettings файлы из API при публикации -->
+  <ItemGroup>
+    <None Remove="..\MobileGwDataSync.API\appsettings*.json" />
+    <None Remove="..\MobileGwDataSync.API\**\appsettings*.json" />
+  </ItemGroup>
+
+  <!-- Убедитесь что включены только файлы Host -->
+  <ItemGroup>
+    <None Update="appsettings.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </None>
+    <None Update="appsettings.*.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </None>
+  </ItemGroup>
+
 </Project>
