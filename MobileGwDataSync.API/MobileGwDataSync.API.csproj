@@ -36,7 +36,11 @@
     <PackageReference Include="prometheus-net.AspNetCore" Version="8.2.1" />
 
     <!-- Scheduler -->
-
+    <PackageReference Include="Quartz.Serialization.Json" Version="3.15.0" />
+    <PackageReference Include="Quartz.Extensions.DependencyInjection" Version="3.15.0" />
+    <PackageReference Include="Quartz.Extensions.Hosting" Version="3.15.0" />
+    <PackageReference Include="StackExchange.Redis" Version="2.9.17" />
+    
     <!-- Swagger -->
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
   </ItemGroup>
