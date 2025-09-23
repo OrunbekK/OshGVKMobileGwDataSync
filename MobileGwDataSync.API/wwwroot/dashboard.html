@@ -536,13 +536,23 @@
 
                 // Show duration and records if available
                 if (job.lastRun) {
-                    const duration = job.lastRun.EndTime
-                        ? new Date(job.lastRun.EndTime) - new Date(job.lastRun.StartTime)
-                        : new Date() - new Date(job.lastRun.StartTime);
+                    let durationText = '';
 
-                    item.querySelector('.job-duration').textContent = `⏱️ ${Math.round(duration / 1000)}s`;
+                    if (job.lastRun.StartTime) {
+                        const startTime = new Date(job.lastRun.StartTime);
+                        const endTime = job.lastRun.EndTime ? new Date(job.lastRun.EndTime) : new Date();
+                        const duration = endTime - startTime;
 
-                    if (job.lastRun.RecordsProcessed !== undefined) {
+                        if (!isNaN(duration) && duration >= 0) {
+                            durationText = `⏱️ ${Math.round(duration / 1000)}s`;
+                        }
+                    }
+
+                    if (durationText) {
+                        item.querySelector('.job-duration').textContent = durationText;
+                    }
+
+                    if (job.lastRun.RecordsProcessed !== undefined && job.lastRun.RecordsProcessed !== null) {
                         item.querySelector('.job-records').textContent =
                             `📊 ${job.lastRun.RecordsProcessed} records`;
                     }

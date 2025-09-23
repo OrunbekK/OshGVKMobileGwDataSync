@@ -6,20 +6,42 @@ class LoginPage {
         this.loginBtn = document.getElementById('loginBtn');
         this.loginText = document.getElementById('loginText');
         this.loginSpinner = document.getElementById('loginSpinner');
-        
+
         this.init();
     }
 
-    init() {
-        // Check if already authenticated
-        if (localStorage.getItem('jwtToken')) {
-            window.location.href = '/dashboard.html';
-            return;
+    async init() {
+        // Проверяем валидность если токен есть
+        const token = localStorage.getItem('jwtToken');
+        if (token) {
+            try {
+                // Проверяем валидность токена
+                const response = await fetch('/dashboard/data', {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                if (response.ok) {
+                    // Токен валидный - переходим на dashboard
+                    window.location.href = '/dashboard.html';
+                    return;
+                } else if (response.status === 401) {
+                    // Токен невалидный - очищаем
+                    localStorage.removeItem('jwtToken');
+                    localStorage.removeItem('user');
+                }
+            } catch (error) {
+                console.error('Token validation error:', error);
+                // При ошибке остаемся на странице логина
+            }
         }
 
+        // Настраиваем обработчики
         this.form.addEventListener('submit', (e) => this.handleSubmit(e));
-        
-        // Load saved username if remember me was checked
+
+        // Загружаем сохраненное имя пользователя
         const savedUsername = localStorage.getItem('savedUsername');
         if (savedUsername) {
             document.getElementById('username').value = savedUsername;

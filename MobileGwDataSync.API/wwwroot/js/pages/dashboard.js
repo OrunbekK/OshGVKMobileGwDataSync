@@ -7,41 +7,58 @@ class Dashboard {
         this.chartManager = new ChartManager();
         this.tableManager = new TableManager();
         this.metricsManager = new MetricsManager();
+        this.isRedirecting = false;
 
         this.init();
     }
 
     async init() {
         // Проверка авторизации
-        if (!localStorage.getItem('jwtToken')) {
-            window.location.href = '/login.html';
+        const token = localStorage.getItem('jwtToken');
+
+        if (!token) {
+            this.redirectToLogin();
             return;
         }
 
-        // Проверка срока токена
-        if (window.api.isTokenExpired()) {
-            try {
-                await window.api.refreshToken();
-            } catch (error) {
-                window.location.href = '/login.html';
-                return;
+        // Проверяем валидность токена
+        try {
+            const response = await fetch('/dashboard/data', {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+
+            if (!response.ok) {
+                if (response.status === 401) {
+                    // Токен невалидный
+                    //console.log('Token invalid or expired');
+                    localStorage.removeItem('jwtToken');
+                    localStorage.removeItem('user');
+                    this.redirectToLogin();
+                    return;
+                }
             }
+        } catch (error) {
+            console.error('Auth check failed:', error);
+            // При ошибке сети позволяем остаться на странице
+            this.showToast('Ошибка проверки авторизации', 'warning');
         }
 
-        // Загружаем информацию о пользователе
+        // Если все ок, продолжаем инициализацию
         this.loadUserInfo();
-
-        // Настраиваем обработчики событий
         this.setupEventListeners();
-
-        // Загружаем начальную страницу
         await this.loadPage('overview');
-
-        // Запускаем автообновление
         this.startAutoRefresh();
-
-        // Запускаем часы
         this.startClock();
+    }
+
+    redirectToLogin() {
+        if (!this.isRedirecting) {
+            this.isRedirecting = true;
+            window.location.href = '/login.html';
+        }
     }
 
     loadUserInfo() {
@@ -158,7 +175,6 @@ class Dashboard {
 
     async loadOverview() {
         try {
-            // Используем существующий endpoint /dashboard/data
             const data = await window.api.getDashboardData();
 
             const contentArea = document.getElementById('contentArea');
@@ -171,188 +187,235 @@ class Dashboard {
             const totalRecords = data.recentRuns?.reduce((sum, r) => sum + r.recordsProcessed, 0) || 0;
 
             contentArea.innerHTML = `
-                <div class="d-flex justify-content-between align-items-center mb-4">
-                    <h4>Dashboard Overview</h4>
-                    <span class="text-muted">Last updated: ${new Date().toLocaleTimeString()}</span>
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h4>Dashboard Overview</h4>
+                <span class="text-muted">Last updated: ${new Date().toLocaleTimeString()}</span>
+            </div>
+            
+            <!-- Верхний ряд: 3 метрики + круговая диаграмма -->
+            <div class="row g-4 mb-4">
+                <div class="col-xl-3 col-lg-6 col-md-6">
+                    <div class="metric-card">
+                        <div class="metric-icon bg-primary bg-opacity-10 text-primary">
+                            <i class="bi bi-arrow-repeat"></i>
+                        </div>
+                        <div class="metric-value">${totalRuns}</div>
+                        <div class="metric-label">Total Runs (24h)</div>
+                        <div class="metric-change positive">
+                            <i class="bi bi-graph-up"></i>
+                            <span>Last 24 hours</span>
+                        </div>
+                    </div>
                 </div>
                 
-                <!-- Метрики -->
-                <div class="row g-4 mb-4">
-                    <div class="col-xl-3 col-md-6">
-                        <div class="metric-card">
-                            <div class="metric-icon bg-primary bg-opacity-10 text-primary">
-                                <i class="bi bi-arrow-repeat"></i>
-                            </div>
-                            <div class="metric-value">${totalRuns}</div>
-                            <div class="metric-label">Total Runs (24h)</div>
-                            <div class="metric-change positive">
-                                <i class="bi bi-graph-up"></i>
-                                <span>Last 24 hours</span>
+                <div class="col-xl-3 col-lg-6 col-md-6">
+                    <div class="metric-card">
+                        <div class="metric-icon bg-success bg-opacity-10 text-success">
+                            <i class="bi bi-check-circle"></i>
+                        </div>
+                        <div class="metric-value">${successRate}%</div>
+                        <div class="metric-label">Success Rate</div>
+                        <div class="metric-change ${successRate >= 90 ? 'positive' : 'negative'}">
+                            <i class="bi bi-${successRate >= 90 ? 'arrow-up' : 'arrow-down'}"></i>
+                            <span>${successCount}/${totalRuns}</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="col-xl-3 col-lg-6 col-md-6">
+                    <div class="metric-card">
+                        <div class="metric-icon bg-info bg-opacity-10 text-info">
+                            <i class="bi bi-database"></i>
+                        </div>
+                        <div class="metric-value">${Utils.formatNumber(totalRecords)}</div>
+                        <div class="metric-label">Records Processed</div>
+                        <div class="metric-change positive">
+                            <i class="bi bi-activity"></i>
+                            <span>Total today</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Status Distribution как 4-й элемент верхнего ряда -->
+                <div class="col-xl-3 col-lg-6 col-md-6">
+                    <div class="card h-100">
+                        <div class="card-body p-3">
+                            <h6 class="mb-2">Status Distribution (24h)</h6>
+                            <canvas id="statusChart" style="max-height: 150px;"></canvas>
+                            <div class="mt-2 text-center">
+                                <small class="text-muted">Total: ${totalRuns} runs</small>
                             </div>
                         </div>
                     </div>
-                    <div class="col-xl-3 col-md-6">
-                        <div class="metric-card">
-                            <div class="metric-icon bg-success bg-opacity-10 text-success">
-                                <i class="bi bi-check-circle"></i>
-                            </div>
-                            <div class="metric-value">${successRate}%</div>
-                            <div class="metric-label">Success Rate</div>
-                            <div class="metric-change ${successRate >= 90 ? 'positive' : 'negative'}">
-                                <i class="bi bi-${successRate >= 90 ? 'arrow-up' : 'arrow-down'}"></i>
-                                <span>${successCount}/${totalRuns}</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-xl-3 col-md-6">
-                        <div class="metric-card">
-                            <div class="metric-icon bg-danger bg-opacity-10 text-danger">
-                                <i class="bi bi-x-circle"></i>
-                            </div>
-                            <div class="metric-value">${failedCount}</div>
-                            <div class="metric-label">Failed Runs</div>
-                            <div class="metric-change ${failedCount > 0 ? 'negative' : 'positive'}">
-                                <i class="bi bi-exclamation-triangle"></i>
-                                <span>${failedCount > 0 ? 'Requires attention' : 'All good'}</span>
+                </div>
+            </div>
+
+            <!-- График активности на всю ширину -->
+            <div class="row g-4 mb-4">
+                <div class="col-12">
+                    <div class="card">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h5 class="mb-0">Sync Activity (Last 7 Days)</h5>
+                            <div class="btn-group btn-group-sm" role="group">
+                                <button type="button" class="btn btn-outline-secondary active" onclick="dashboard.changeChartView('week')">Week</button>
+                                <button type="button" class="btn btn-outline-secondary" onclick="dashboard.changeChartView('month')">Month</button>
                             </div>
                         </div>
+                        <div class="card-body">
+                            <canvas id="activityChart" height="80"></canvas>
+                        </div>
                     </div>
-                    <div class="col-xl-3 col-md-6">
-                        <div class="metric-card">
-                            <div class="metric-icon bg-info bg-opacity-10 text-info">
-                                <i class="bi bi-database"></i>
-                            </div>
-                            <div class="metric-value">${Utils.formatNumber(totalRecords)}</div>
-                            <div class="metric-label">Records Processed</div>
-                            <div class="metric-change positive">
-                                <i class="bi bi-activity"></i>
-                                <span>Total today</span>
+                </div>
+            </div>
+
+            <!-- Три таблицы в ряд -->
+            <div class="row g-4">
+                <!-- Active Jobs -->
+                <div class="col-lg-4">
+                    <div class="card h-100">
+                        <div class="card-header d-flex justify-content-between">
+                            <h6 class="mb-0">Active Jobs</h6>
+                            <a href="#" onclick="dashboard.loadPage('jobs'); return false;" class="text-decoration-none small">View all</a>
+                        </div>
+                        <div class="card-body">
+                            <div class="table-responsive">
+                                <table class="table table-hover table-sm">
+                                    <thead>
+                                        <tr>
+                                            <th>Job</th>
+                                            <th>Next Run</th>
+                                            <th></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${(data.activeJobs || []).slice(0, 5).map(job => `
+                                            <tr>
+                                                <td>
+                                                    <small class="fw-medium">${job.name}</small>
+                                                </td>
+                                                <td>
+                                                    <small class="text-muted">${job.nextRunAt ? Utils.getRelativeTime(job.nextRunAt) : 'N/A'}</small>
+                                                </td>
+                                                <td>
+                                                    <button class="btn btn-sm btn-primary p-1" onclick="dashboard.triggerJob('${job.id}')" title="Run">
+                                                        <i class="bi bi-play-fill"></i>
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        `).join('')}
+                                    </tbody>
+                                </table>
+                                ${data.activeJobs?.length === 0 ? '<p class="text-muted text-center small">No active jobs</p>' : ''}
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <!-- Графики -->
-                <div class="row g-4 mb-4">
-                    <div class="col-lg-8">
-                        <div class="card">
-                            <div class="card-header d-flex justify-content-between align-items-center">
-                                <h5 class="mb-0">Sync Activity (Last 7 Days)</h5>
-                                <div class="btn-group btn-group-sm" role="group">
-                                    <button type="button" class="btn btn-outline-secondary active" onclick="dashboard.changeChartView('week')">Week</button>
-                                    <button type="button" class="btn btn-outline-secondary" onclick="dashboard.changeChartView('month')">Month</button>
-                                </div>
-                            </div>
-                            <div class="card-body">
-                                <canvas id="activityChart" height="100"></canvas>
-                            </div>
+                <!-- Recent Sync Runs -->
+                <div class="col-lg-4">
+                    <div class="card h-100">
+                        <div class="card-header d-flex justify-content-between">
+                            <h6 class="mb-0">Recent Runs</h6>
+                            <a href="#" onclick="dashboard.loadPage('history'); return false;" class="text-decoration-none small">View all</a>
                         </div>
-                    </div>
-                    <div class="col-lg-4">
-                        <div class="card">
-                            <div class="card-header">
-                                <h5 class="mb-0">Status Distribution (24h)</h5>
-                            </div>
-                            <div class="card-body">
-                                <canvas id="statusChart"></canvas>
-                                <div class="mt-3 text-center">
-                                    <small class="text-muted">
-                                        Total: ${totalRuns} runs in last 24 hours
-                                    </small>
-                                </div>
+                        <div class="card-body">
+                            <div class="table-responsive">
+                                <table class="table table-hover table-sm">
+                                    <thead>
+                                        <tr>
+                                            <th>Job</th>
+                                            <th>Records</th>
+                                            <th>Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${(data.recentRuns || []).slice(0, 5).map(run => `
+                                            <tr>
+                                                <td>
+                                                    <small class="fw-medium">${run.jobName}</small>
+                                                    <br>
+                                                    <small class="text-muted">${Utils.getRelativeTime(run.startTime)}</small>
+                                                </td>
+                                                <td>
+                                                    <small>${Utils.formatNumber(run.recordsProcessed)}</small>
+                                                </td>
+                                                <td>
+                                                    <span class="badge bg-${run.status === 'Completed' ? 'success' : run.status === 'Failed' ? 'danger' : 'warning'} small">
+                                                        ${run.status}
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                        `).join('')}
+                                    </tbody>
+                                </table>
+                                ${data.recentRuns?.length === 0 ? '<p class="text-muted text-center small">No recent runs</p>' : ''}
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <!-- Активные задачи и последние запуски -->
-                <div class="row g-4">
-                    <!-- Активные задачи -->
-                    <div class="col-lg-6">
-                        <div class="card">
-                            <div class="card-header d-flex justify-content-between">
-                                <h5 class="mb-0">Active Jobs</h5>
-                                <a href="#" onclick="dashboard.loadPage('jobs'); return false;" class="text-decoration-none">View all</a>
-                            </div>
-                            <div class="card-body">
-                                <div class="table-responsive">
-                                    <table class="table table-hover table-sm">
-                                        <thead>
-                                            <tr>
-                                                <th>Job Name</th>
-                                                <th>Schedule</th>
-                                                <th>Next Run</th>
-                                                <th>Actions</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            ${(data.activeJobs || []).slice(0, 5).map(job => `
-                                                <tr>
-                                                    <td>
-                                                        <span class="fw-medium">${job.name}</span>
-                                                    </td>
-                                                    <td>
-                                                        <code class="small">${job.cronExpression}</code>
-                                                    </td>
-                                                    <td>
-                                                        <small>${job.nextRunAt ? new Date(job.nextRunAt).toLocaleString() : 'N/A'}</small>
-                                                    </td>
-                                                    <td>
-                                                        <button class="btn btn-sm btn-primary" onclick="dashboard.triggerJob('${job.id}')" title="Run Now">
-                                                            <i class="bi bi-play-fill"></i>
-                                                        </button>
-                                                    </td>
-                                                </tr>
-                                            `).join('')}
-                                        </tbody>
-                                    </table>
-                                    ${data.activeJobs?.length === 0 ? '<p class="text-muted text-center">No active jobs</p>' : ''}
-                                </div>
-                            </div>
+                <!-- Failed Runs -->
+                <div class="col-lg-4">
+                    <div class="card h-100">
+                        <div class="card-header d-flex justify-content-between">
+                            <h6 class="mb-0">Failed Runs</h6>
+                            <span class="badge bg-danger">${failedCount}</span>
                         </div>
-                    </div>
+                        <div class="card-body">
+                            <div class="table-responsive">
+                                <table class="table table-hover table-sm">
+                                    <thead>
+                                        <tr>
+                                            <th>Job</th>
+                                            <th>Time</th>
+                                            <th>Error</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${(() => {
+                                    const failedRuns = (data.recentRuns || []).filter(r => r.status === 'Failed');
 
-                    <!-- Последние запуски -->
-                    <div class="col-lg-6">
-                        <div class="card">
-                            <div class="card-header d-flex justify-content-between">
-                                <h5 class="mb-0">Recent Sync Runs</h5>
-                                <a href="#" onclick="dashboard.loadPage('history'); return false;" class="text-decoration-none">View all</a>
-                            </div>
-                            <div class="card-body">
-                                <div class="table-responsive">
-                                    <table class="table table-hover table-sm">
-                                        <thead>
-                                            <tr>
-                                                <th>Job</th>
-                                                <th>Time</th>
-                                                <th>Records</th>
-                                                <th>Status</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            ${(data.recentRuns || []).slice(0, 5).map(run => `
-                                                <tr>
-                                                    <td>
-                                                        <span class="fw-medium">${run.jobName}</span>
-                                                    </td>
-                                                    <td>
-                                                        <small>${Utils.getRelativeTime(run.startTime)}</small>
-                                                    </td>
-                                                    <td>
-                                                        <span class="badge bg-secondary">${Utils.formatNumber(run.recordsProcessed)}</span>
-                                                    </td>
-                                                    <td>
-                                                        <span class="badge bg-${run.status === 'Completed' ? 'success' : run.status === 'Failed' ? 'danger' : 'warning'}">
-                                                            ${run.status}
-                                                        </span>
-                                                    </td>
-                                                </tr>
-                                            `).join('')}
-                                        </tbody>
-                                    </table>
-                                    ${data.recentRuns?.length === 0 ? '<p class="text-muted text-center">No recent runs</p>' : ''}
-                                </div>
+                                    if (failedRuns.length > 0) {
+                                        return failedRuns.slice(0, 5).map(run => `
+                                                    <tr>
+                                                        <td>
+                                                            <small class="fw-medium">${run.jobName}</small>
+                                                        </td>
+                                                        <td>
+                                                            <small class="text-muted">${Utils.getRelativeTime(run.startTime)}</small>
+                                                        </td>
+                                                        <td>
+                                                            <small class="text-danger" title="${run.errorMessage || 'Unknown error'}">
+                                                                ${run.errorMessage ? (run.errorMessage.substring(0, 25) + '...') : 'Unknown'}
+                                                            </small>
+                                                        </td>
+                                                    </tr>
+                                                `).join('');
+                                    } else if (failedCount > 0) {
+                                        // Есть ошибки за 24 часа, но не в последних 10 запусках
+                                        return `
+                                                    <tr>
+                                                        <td colspan="3" class="text-center text-muted small py-3">
+                                                            <i class="bi bi-info-circle me-1"></i>
+                                                            ${failedCount} failed runs in last 24h,<br>
+                                                            but none in recent 10 runs
+                                                        </td>
+                                                    </tr>
+                                                `;
+                                    } else {
+                                        // Нет ошибок вообще
+                                        return `
+                                                    <tr>
+                                                        <td colspan="3" class="text-center text-success small py-3">
+                                                            <i class="bi bi-check-circle me-1"></i>
+                                                            No failed runs
+                                                        </td>
+                                                    </tr>
+                                                `;
+                                    }
+                                })()}
+                                    </tbody>
+                                </table>
                             </div>
                         </div>
                     </div>
@@ -957,30 +1020,13 @@ class Dashboard {
         try {
             const response = await fetch('/dashboard/queue-status', {
                 headers: {
-                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                    'Authorization': `Bearer ${localStorage.getItem('jwtToken')}`
                 }
             });
 
             if (response.ok) {
                 const queueInfo = await response.json();
-                updateQueueIndicator(queueInfo);
-            }
-        } catch (error) {
-            console.error('Error checking queue status:', error);
-        }
-    }
-
-    async checkQueueStatus() {
-        try {
-            const response = await fetch('/dashboard/queue-status', {
-                headers: {
-                    'Authorization': `Bearer ${localStorage.getItem('token')}`
-                }
-            });
-
-            if (response.ok) {
-                const queueInfo = await response.json();
-                updateQueueIndicator(queueInfo);
+                //console.log('Queue status:', queueInfo);
             }
         } catch (error) {
             console.error('Error checking queue status:', error);
@@ -988,11 +1034,11 @@ class Dashboard {
     }
 
     async triggerJob(jobId) {
-        console.log('=== TRIGGER JOB DEBUG ===');
-        console.log('Job ID:', jobId);
-        console.log('Token exists:', !!localStorage.getItem('jwtToken'));
+        //console.log('=== TRIGGER JOB DEBUG ===');
+        //console.log('Job ID:', jobId);
+        //console.log('Token exists:', !!localStorage.getItem('jwtToken'));
         const user = JSON.parse(localStorage.getItem('user') || '{}');
-        console.log('User role:', user.role);
+        //console.log('User role:', user.role);
 
         if (!jobId) {
             this.showToast('Error: Job ID is missing', 'danger');
@@ -1005,9 +1051,9 @@ class Dashboard {
         const jobName = document.querySelector(`[data-job-id="${jobId}"] .job-name`)?.textContent || jobId;
 
         try {
-            console.log('Sending request to:', `/dashboard/trigger/${jobId}`);
+            //console.log('Sending request to:', `/dashboard/trigger/${jobId}`);
             const result = await window.api.triggerJob(jobId);
-            console.log('Response:', result);
+            //console.log('Response:', result);
 
             if (result.success) {
                 // Разные уведомления в зависимости от метода выполнения
@@ -1091,7 +1137,7 @@ class Dashboard {
 
                 if (response.ok) {
                     const status = await response.json();
-                    console.log(`Job ${jobId} status:`, status.status);
+                    //console.log(`Job ${jobId} status:`, status.status);
 
                     // Обновляем UI если есть элемент задачи
                     const jobElement = document.querySelector(`[data-job-id="${jobId}"]`);
@@ -1127,7 +1173,7 @@ class Dashboard {
                     // Останавливаем проверку если превысили лимит попыток
                     if (attempts >= maxAttempts) {
                         clearInterval(checkInterval);
-                        console.log('Job tracking timeout reached');
+                        //console.log('Job tracking timeout reached');
                     }
                 }
             } catch (error) {
@@ -1384,7 +1430,7 @@ class Dashboard {
         this.refreshInterval = setInterval(() => {
             // Обновляем только overview и health страницы
             if (this.currentPage === 'overview' || this.currentPage === 'health') {
-                console.log('Auto-refreshing page:', this.currentPage);
+                //console.log('Auto-refreshing page:', this.currentPage);
                 this.loadPage(this.currentPage);
             }
         }, interval);
@@ -1400,7 +1446,8 @@ class Dashboard {
 
         updateTime();
         setInterval(updateTime, 1000);
-        setInterval(checkQueueStatus, 5000);
+
+        setInterval(() => this.checkQueueStatus(), 5000);
     }
 
     destroy() {
@@ -1423,7 +1470,7 @@ class Dashboard {
             this.metricsManager.stopAllRealtimeUpdates();
         }
 
-        console.log('Dashboard destroyed');
+        //console.log('Dashboard destroyed');
     }
 }
 
