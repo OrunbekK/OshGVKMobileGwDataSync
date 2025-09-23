@@ -1,0 +1,94 @@
+﻿/* app.css - Глобальные стили приложения */
+:root {
+    --bs-primary: #6f42c1;
+    --bs-primary-rgb: 111, 66, 193;
+    --gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    --sidebar-width: 250px;
+    --sidebar-collapsed-width: 60px;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background-color: #f8f9fa;
+}
+
+/* Utility Classes */
+.gradient-bg {
+    background: var(--gradient);
+}
+
+.hover-scale {
+    transition: transform 0.2s;
+}
+
+    .hover-scale:hover {
+        transform: scale(1.02);
+    }
+
+/* Loading Spinner */
+.spinner-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 200px;
+}
+
+/* Status Badges */
+.badge-status-completed {
+    background-color: #198754;
+}
+
+.badge-status-failed {
+    background-color: #dc3545;
+}
+
+.badge-status-inprogress {
+    background-color: #ffc107;
+    color: #000;
+}
+
+.badge-status-pending {
+    background-color: #6c757d;
+}
+
+/* Animations */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.fade-in {
+    animation: fadeIn 0.3s ease-out;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: #f1f1f1;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 4px;
+}
+
+    ::-webkit-scrollbar-thumb:hover {
+        background: #555;
+    }
