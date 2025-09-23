@@ -6,7 +6,7 @@ namespace MobileGwDataSync.Host.Services
     public interface ICommandQueue
     {
         Task PublishJobTriggerAsync(string jobId, string triggeredBy);
-        Task<JobCommand> WaitForCommandAsync(CancellationToken cancellationToken);
+        Task<JobCommand?> WaitForCommandAsync(CancellationToken cancellationToken);
     }
 
     public class RedisCommandQueue : ICommandQueue
@@ -37,21 +37,25 @@ namespace MobileGwDataSync.Host.Services
 
             // Публикуем событие для подписчиков
             var subscriber = _redis.GetSubscriber();
-            await subscriber.PublishAsync("job:trigger", json);
+            await subscriber.PublishAsync(RedisChannel.Literal("job:trigger"), json);
 
             _logger.LogInformation("Published job trigger command for {JobId}", jobId);
         }
 
-        public async Task<JobCommand> WaitForCommandAsync(CancellationToken cancellationToken)
+        public async Task<JobCommand?> WaitForCommandAsync(CancellationToken cancellationToken)
         {
             var db = _redis.GetDatabase();
 
             while (!cancellationToken.IsCancellationRequested)
             {
                 var value = await db.ListLeftPopAsync("job:commands");
-                if (!value.IsNullOrEmpty)
+                if (!value.IsNullOrEmpty && value.HasValue)
                 {
-                    return JsonSerializer.Deserialize<JobCommand>(value);
+                    var json = value.ToString();
+                    if (!string.IsNullOrEmpty(json))
+                    {
+                        return JsonSerializer.Deserialize<JobCommand>(json);
+                    }
                 }
 
                 await Task.Delay(1000, cancellationToken);
