@@ -991,7 +991,6 @@ class Dashboard {
         console.log('=== TRIGGER JOB DEBUG ===');
         console.log('Job ID:', jobId);
         console.log('Token exists:', !!localStorage.getItem('jwtToken'));
-
         const user = JSON.parse(localStorage.getItem('user') || '{}');
         console.log('User role:', user.role);
 
@@ -1002,28 +1001,171 @@ class Dashboard {
 
         if (!confirm('Запустить эту задачу сейчас?')) return;
 
+        // Получаем имя задачи для мониторинга
+        const jobName = document.querySelector(`[data-job-id="${jobId}"] .job-name`)?.textContent || jobId;
+
         try {
             console.log('Sending request to:', `/dashboard/trigger/${jobId}`);
             const result = await window.api.triggerJob(jobId);
             console.log('Response:', result);
 
-            this.showToast(
-                `Задача выполнена! Обработано ${result.recordsProcessed || 0} записей.`,
-                'success'
-            );
+            if (result.success) {
+                // Разные уведомления в зависимости от метода выполнения
+                if (result.method === 'redis_queue') {
+                    this.showToast('Задача поставлена в очередь выполнения', 'info');
 
-            setTimeout(() => this.loadPage(this.currentPage), 2000);
+                    // Добавляем задачу в монитор если он доступен
+                    if (window.jobMonitor) {
+                        window.jobMonitor.addJob(jobId, jobName);
+                    }
+
+                    // Начинаем отслеживать статус задачи
+                    this.startJobTracking(jobId);
+
+                } else if (result.method === 'direct') {
+                    // Прямое выполнение - показываем детали
+                    if (result.details) {
+                        const message = `Задача выполнена напрямую (Redis недоступен)
+                        Обработано: ${result.details.recordsProcessed} записей
+                        Ошибки: ${result.details.recordsFailed || 0}
+                        Время: ${result.details.duration.toFixed(2)} сек`;
+
+                        this.showToast(message.replace(/\s+/g, ' '), 'success', 5000);
+
+                        // Если были ошибки, показываем их
+                        if (result.errors && result.errors.length > 0) {
+                            console.error('Execution errors:', result.errors);
+                            this.showToast(`Обнаружены ошибки: ${result.errors.length}`, 'warning');
+                        }
+                    } else {
+                        this.showToast('Задача выполнена успешно', 'success');
+                    }
+
+                    // Обновляем дашборд через 2 секунды
+                    setTimeout(() => this.loadPage(this.currentPage), 2000);
+                }
+            } else {
+                // Обработка неуспешного результата
+                this.showToast(result.message || 'Ошибка выполнения задачи', 'danger');
+
+                if (result.errors && result.errors.length > 0) {
+                    console.error('Job errors:', result.errors);
+                    // Показываем первую ошибку пользователю
+                    if (result.errors[0]) {
+                        this.showToast(`Ошибка: ${result.errors[0]}`, 'danger', 5000);
+                    }
+                }
+            }
+
         } catch (error) {
             console.error('Full error:', error);
 
-            if (error.message.includes('Forbidden')) {
+            // Обработка различных типов ошибок
+            if (error.message.includes('Forbidden') || error.message.includes('403')) {
                 this.showToast('У вас нет прав для запуска задач', 'warning');
             } else if (error.message.includes('already running')) {
                 this.showToast('Задача уже выполняется', 'warning');
+            } else if (error.message.includes('Unauthorized') || error.message.includes('401')) {
+                this.showToast('Сессия истекла. Необходима повторная авторизация', 'danger');
+                setTimeout(() => window.location.href = '/login', 2000);
             } else {
                 this.showToast(`Ошибка: ${error.message}`, 'danger');
             }
         }
+    }
+
+    // Новый метод для отслеживания статуса задачи
+    async startJobTracking(jobId) {
+        let attempts = 0;
+        const maxAttempts = 30; // Максимум 30 попыток (1 минута при интервале 2 сек)
+
+        const checkInterval = setInterval(async () => {
+            attempts++;
+
+            try {
+                const response = await fetch(`/dashboard/status/${jobId}`, {
+                    headers: {
+                        'Authorization': `Bearer ${localStorage.getItem('jwtToken')}`
+                    }
+                });
+
+                if (response.ok) {
+                    const status = await response.json();
+                    console.log(`Job ${jobId} status:`, status.status);
+
+                    // Обновляем UI если есть элемент задачи
+                    const jobElement = document.querySelector(`[data-job-id="${jobId}"]`);
+                    if (jobElement) {
+                        const statusBadge = jobElement.querySelector('.status-badge, .job-status');
+                        if (statusBadge) {
+                            statusBadge.textContent = status.status;
+                            statusBadge.className = `status-badge status-${status.status}`;
+                        }
+                    }
+
+                    // Проверяем завершение
+                    if (status.status === 'idle' && status.lastRun?.EndTime) {
+                        clearInterval(checkInterval);
+
+                        // Показываем результат
+                        if (status.lastRun.Status === 'Completed') {
+                            this.showToast(
+                                `Задача завершена! Обработано: ${status.lastRun.RecordsProcessed} записей`,
+                                'success'
+                            );
+                        } else if (status.lastRun.Status === 'Failed') {
+                            this.showToast(
+                                `Задача завершена с ошибкой: ${status.lastRun.ErrorMessage || 'Неизвестная ошибка'}`,
+                                'danger'
+                            );
+                        }
+
+                        // Обновляем страницу
+                        this.loadPage(this.currentPage);
+                    }
+
+                    // Останавливаем проверку если превысили лимит попыток
+                    if (attempts >= maxAttempts) {
+                        clearInterval(checkInterval);
+                        console.log('Job tracking timeout reached');
+                    }
+                }
+            } catch (error) {
+                console.error('Error checking job status:', error);
+                // Продолжаем проверку даже при ошибке
+            }
+        }, 2000); // Проверяем каждые 2 секунды
+    }
+
+    // Улучшенный метод показа уведомлений с поддержкой длительности
+    showToast(message, type = 'info', duration = 3000) {
+        const toastContainer = document.getElementById('toastContainer');
+        const toastId = `toast-${Date.now()}`;
+
+        const toastHtml = `
+        <div id="${toastId}" class="toast job-notification" role="alert" data-bs-autohide="true" data-bs-delay="${duration}">
+            <div class="toast-header bg-${type === 'danger' ? 'danger' : type === 'success' ? 'success' : type === 'warning' ? 'warning' : 'info'} text-white">
+                <i class="bi bi-${type === 'danger' ? 'exclamation-circle' : type === 'success' ? 'check-circle' : type === 'warning' ? 'exclamation-triangle' : 'info-circle'} me-2"></i>
+                <strong class="me-auto">System</strong>
+                <small>${new Date().toLocaleTimeString()}</small>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast"></button>
+            </div>
+            <div class="toast-body">
+                ${message}
+            </div>
+        </div>
+    `;
+
+        toastContainer.insertAdjacentHTML('beforeend', toastHtml);
+
+        const toastElement = document.getElementById(toastId);
+        const toast = new bootstrap.Toast(toastElement);
+        toast.show();
+
+        // Удаляем элемент после скрытия
+        toastElement.addEventListener('hidden.bs.toast', () => {
+            toastElement.remove();
+        });
     }
 
     updateJobStatusUI(jobId, status) {
