@@ -953,6 +953,40 @@ class Dashboard {
         }
     }
 
+    async checkQueueStatus() {
+        try {
+            const response = await fetch('/dashboard/queue-status', {
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                }
+            });
+
+            if (response.ok) {
+                const queueInfo = await response.json();
+                updateQueueIndicator(queueInfo);
+            }
+        } catch (error) {
+            console.error('Error checking queue status:', error);
+        }
+    }
+
+    async checkQueueStatus() {
+        try {
+            const response = await fetch('/dashboard/queue-status', {
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                }
+            });
+
+            if (response.ok) {
+                const queueInfo = await response.json();
+                updateQueueIndicator(queueInfo);
+            }
+        } catch (error) {
+            console.error('Error checking queue status:', error);
+        }
+    }
+
     async triggerJob(jobId) {
         console.log('=== TRIGGER JOB DEBUG ===');
         console.log('Job ID:', jobId);
@@ -988,6 +1022,17 @@ class Dashboard {
                 this.showToast('Задача уже выполняется', 'warning');
             } else {
                 this.showToast(`Ошибка: ${error.message}`, 'danger');
+            }
+        }
+    }
+
+    updateJobStatusUI(jobId, status) {
+        const jobRow = document.querySelector(`[data-job-id="${jobId}"]`);
+        if (jobRow) {
+            const statusBadge = jobRow.querySelector('.status-badge');
+            if (statusBadge) {
+                statusBadge.textContent = status.status;
+                statusBadge.className = `status-badge status-${status.status}`;
             }
         }
     }
@@ -1213,6 +1258,7 @@ class Dashboard {
 
         updateTime();
         setInterval(updateTime, 1000);
+        setInterval(checkQueueStatus, 5000);
     }
 
     destroy() {

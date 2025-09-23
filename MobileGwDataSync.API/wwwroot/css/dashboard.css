@@ -524,3 +524,41 @@
 .progress-bar {
     background: var(--gradient);
 }
+
+.queue-status {
+    position: fixed;
+    top: 70px;
+    right: 20px;
+    background: #f8f9fa;
+    padding: 8px 16px;
+    border-radius: 20px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    font-size: 14px;
+}
+
+.status-badge.status-running {
+    background: #ffc107;
+    animation: pulse 1.5s infinite;
+}
+
+.status-badge.status-queued {
+    background: #17a2b8;
+}
+
+.status-badge.status-idle {
+    background: #6c757d;
+}
+
+@keyframes pulse {
+    0% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.7;
+    }
+
+    100% {
+        opacity: 1;
+    }
+}

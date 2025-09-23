@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Mvc.ApiExplorer;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using MobileGwDataSync.API.Middleware;
@@ -22,6 +23,7 @@ using MobileGwDataSync.Monitoring.Services;
 using Prometheus;
 using Serilog;
 using Serilog.Events;
+using StackExchange.Redis;
 using System.IO.Compression;
 using System.Text;
 using System.Text.Json.Serialization;
@@ -64,6 +66,25 @@ namespace MobileGwDataSync.API
 
                 var notificationSettings = appSettings.Notifications ?? new NotificationSettings();
                 builder.Services.AddSingleton(notificationSettings);
+
+                try
+                {
+                    var redisConnection = builder.Configuration.GetConnectionString("Redis") ?? "localhost:6379";
+                    builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
+                    {
+                        var configOptions = ConfigurationOptions.Parse(redisConnection);
+                        configOptions.AbortOnConnectFail = false;
+                        return ConnectionMultiplexer.Connect(configOptions);
+                    });
+
+                    builder.Services.AddSingleton<ICommandQueue, RedisCommandQueue>();
+
+                    Log.Information("Redis command queue configured: {Connection}", redisConnection);
+                }
+                catch (Exception ex)
+                {
+                    Log.Warning(ex, "Redis not configured, manual job triggers will not work");
+                }
 
                 // Add services to the container
                 builder.Services.AddControllers()

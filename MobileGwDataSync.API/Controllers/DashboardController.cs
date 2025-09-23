@@ -1,8 +1,11 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using MobileGwDataSync.API.Services;
 using MobileGwDataSync.Core.Interfaces;
 using MobileGwDataSync.Data.Context;
+using StackExchange.Redis;
+using System;
 using System.Security.Claims;
 
 namespace MobileGwDataSync.API.Controllers
@@ -14,17 +17,20 @@ namespace MobileGwDataSync.API.Controllers
         private readonly ServiceDbContext _context;
         private readonly IConfiguration _configuration;
         private readonly ISyncService _syncService;
+        private readonly ICommandQueue _commandQueue;
         private readonly ILogger<DashboardController> _logger;
 
         public DashboardController(
             ServiceDbContext context,
             IConfiguration configuration,
             ISyncService syncService,
+            ICommandQueue commandQueue,
             ILogger<DashboardController> logger)
         {
             _context = context;
             _configuration = configuration;
             _syncService = syncService;
+            _commandQueue = commandQueue;
             _logger = logger;
         }
 
@@ -135,50 +141,237 @@ namespace MobileGwDataSync.API.Controllers
 
             try
             {
-                var job = await _context.SyncJobs.FindAsync(jobId);
-                if (job == null)
-                    return NotFound(new { message = "Job not found" });
-
-                // Очистка зависших задач
-                var staleTime = DateTime.UtcNow.AddMinutes(-30);
-                var staleJobs = await _context.SyncRuns
-                    .Where(r => r.JobId == jobId && r.Status == "InProgress" && r.StartTime < staleTime)
-                    .ToListAsync();
-
-                foreach (var staleJob in staleJobs)
+                // Сначала пытаемся отправить через Redis
+                try
                 {
-                    staleJob.Status = "Failed";
-                    staleJob.EndTime = DateTime.UtcNow;
-                    staleJob.ErrorMessage = "Job terminated due to timeout";
+                    await _commandQueue.PublishJobTriggerAsync(jobId, User.Identity?.Name ?? "Dashboard");
+                    _logger.LogInformation("Job {JobId} trigger command sent to Redis queue by {User}",
+                        jobId, User.Identity?.Name);
+
+                    return Ok(new
+                    {
+                        success = true,
+                        message = "Задача поставлена в очередь выполнения",
+                        method = "redis_queue",
+                        jobId = jobId
+                    });
+                }
+                catch (RedisConnectionException ex)
+                {
+                    _logger.LogWarning(ex, "Redis unavailable, falling back to direct execution for job {JobId}", jobId);
+
+                    // Fallback: прямой вызов если Redis недоступен
+                    var result = await _syncService.ExecuteSyncAsync(jobId);
+
+                    if (result.Success)
+                    {
+                        return Ok(new
+                        {
+                            success = true,
+                            message = $"Задача выполнена напрямую (Redis недоступен). " +
+                                     $"Обработано: {result.RecordsProcessed} записей за {result.Duration.TotalSeconds:F2} сек",
+                            method = "direct",
+                            jobId = jobId,
+                            details = new
+                            {
+                                recordsProcessed = result.RecordsProcessed,
+                                recordsFailed = result.RecordsFailed,
+                                duration = result.Duration.TotalSeconds,
+                                metrics = result.Metrics
+                            }
+                        });
+                    }
+                    else
+                    {
+                        return Ok(new
+                        {
+                            success = false,
+                            message = "Ошибка выполнения задачи",
+                            method = "direct",
+                            jobId = jobId,
+                            errors = result.Errors,
+                            details = new
+                            {
+                                recordsProcessed = result.RecordsProcessed,
+                                recordsFailed = result.RecordsFailed,
+                                duration = result.Duration.TotalSeconds
+                            }
+                        });
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error triggering job {JobId}", jobId);
+                return StatusCode(500, new
+                {
+                    success = false,
+                    error = "Внутренняя ошибка при запуске задачи",
+                    message = ex.Message
+                });
+            }
+        }
+
+        [HttpGet("status/{jobId}")]
+        [Authorize]
+        public async Task<IActionResult> GetJobStatus(string jobId)
+        {
+            try
+            {
+                // Проверяем, существует ли задача
+                var job = await _context.SyncJobs
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(j => j.Id == jobId);
+
+                if (job == null)
+                {
+                    return NotFound(new { error = $"Job with ID '{jobId}' not found" });
                 }
 
-                await _context.SaveChangesAsync();
+                // Получаем последний запуск
+                var lastRun = await _context.SyncRuns
+                    .Where(r => r.JobId == jobId)
+                    .OrderByDescending(r => r.StartTime)
+                    .Select(r => new
+                    {
+                        r.Id,
+                        r.StartTime,
+                        r.EndTime,
+                        r.Status,
+                        r.RecordsProcessed,
+                        r.RecordsFetched,  // Вместо RecordsFailed
+                        r.ErrorMessage,
+                        Metadata = r.Metadata  // Вместо TriggeredBy можно хранить в Metadata
+                    })
+                    .FirstOrDefaultAsync();
 
-                // Проверка актуальных задач
-                var runningJob = await _context.SyncRuns
-                    .Where(r => r.JobId == jobId && r.Status == "InProgress")
-                    .AnyAsync();
+                // Проверяем статус в Redis (если задача в очереди)
+                string queueStatus = "idle";
+                try
+                {
+                    var isInQueue = await _commandQueue.IsJobInQueueAsync(jobId);
+                    if (isInQueue)
+                    {
+                        queueStatus = "queued";
+                    }
+                }
+                catch (RedisConnectionException)
+                {
+                    _logger.LogDebug("Redis unavailable for queue status check");
+                }
 
-                if (runningJob)
-                    return BadRequest(new { message = "Job is already running" });
+                // Определяем текущий статус
+                string currentStatus;
+                string statusMessage;
 
-                _logger.LogInformation("User {User} triggered job {JobId}", User.Identity?.Name, jobId);
+                if (lastRun != null && lastRun.EndTime == null && lastRun.Status == "Running")
+                {
+                    // Задача выполняется
+                    currentStatus = "running";
+                    statusMessage = $"Задача выполняется с {lastRun.StartTime:HH:mm:ss}";
+                }
+                else if (lastRun != null && (DateTime.UtcNow - lastRun.StartTime).TotalSeconds < 5)
+                {
+                    // Задача только что запущена
+                    currentStatus = "starting";
+                    statusMessage = "Задача запускается...";
+                }
+                else if (queueStatus == "queued")
+                {
+                    currentStatus = "queued";
+                    statusMessage = "Задача в очереди на выполнение";
+                }
+                else
+                {
+                    currentStatus = "idle";
+                    statusMessage = lastRun != null
+                        ? $"Последний запуск: {lastRun.Status} в {lastRun.StartTime:HH:mm:ss}"
+                        : "Задача еще не запускалась";
+                }
 
-                // Запускаем синхронизацию
-                var result = await _syncService.ExecuteSyncAsync(jobId);
+                // Парсим metadata если есть
+                string? triggeredBy = null;
+                if (!string.IsNullOrEmpty(lastRun?.Metadata))
+                {
+                    try
+                    {
+                        var metadata = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object>>(lastRun.Metadata);
+                        triggeredBy = metadata?.GetValueOrDefault("triggeredBy")?.ToString();
+                    }
+                    catch { /* Игнорируем ошибки парсинга */ }
+                }
 
                 return Ok(new
                 {
-                    message = "Job completed",
-                    success = result.Success,
-                    recordsProcessed = result.RecordsProcessed,
-                    errors = result.Errors
+                    jobId = jobId,
+                    jobName = job.Name,
+                    status = currentStatus,
+                    message = statusMessage,
+                    lastRun = lastRun != null ? new
+                    {
+                        lastRun.Id,
+                        lastRun.StartTime,
+                        lastRun.EndTime,
+                        lastRun.Status,
+                        lastRun.RecordsProcessed,
+                        lastRun.RecordsFetched,
+                        lastRun.ErrorMessage,
+                        TriggeredBy = triggeredBy
+                    } : null,
+                    nextRunAt = job.NextRunAt,
+                    isEnabled = job.IsEnabled
                 });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to trigger job {JobId}", jobId);
-                return StatusCode(500, new { message = ex.Message });
+                _logger.LogError(ex, "Error getting status for job {JobId}", jobId);
+                return StatusCode(500, new { error = "Ошибка получения статуса задачи" });
+            }
+        }
+
+        [HttpGet("queue-status")]
+        [Authorize]
+        public async Task<IActionResult> GetQueueStatus()
+        {
+            try
+            {
+                var queueInfo = new
+                {
+                    isRedisAvailable = false,
+                    queueLength = 0,
+                    message = "Информация о очереди недоступна"
+                };
+
+                try
+                {
+                    // Проверяем доступность Redis
+                    var redis = HttpContext.RequestServices.GetService<IConnectionMultiplexer>();
+                    if (redis != null && redis.IsConnected)
+                    {
+                        var db = redis.GetDatabase();
+                        var queueLength = await db.ListLengthAsync("job:commands");
+
+                        queueInfo = new
+                        {
+                            isRedisAvailable = true,
+                            queueLength = (int)queueLength,
+                            message = queueLength > 0
+                                ? $"В очереди {queueLength} команд"
+                                : "Очередь пуста"
+                        };
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to get Redis queue status");
+                }
+
+                return Ok(queueInfo);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting queue status");
+                return StatusCode(500, new { error = "Ошибка получения статуса очереди" });
             }
         }
 
