@@ -123,7 +123,7 @@ namespace MobileGwDataSync.API.Controllers
         }
 
         [HttpPost("trigger/{jobId}")]
-        [Authorize(Policy = "DashboardUser")] // Требует роль Dashboard пользователя
+        [Authorize(Policy = "CanTriggerJobs")]
         public async Task<IActionResult> TriggerJob(string jobId)
         {
             // Проверяем роль пользователя

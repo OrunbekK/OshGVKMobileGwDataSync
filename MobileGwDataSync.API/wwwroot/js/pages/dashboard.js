@@ -46,10 +46,7 @@ class Dashboard {
 
     loadUserInfo() {
         const user = JSON.parse(localStorage.getItem('user') || '{}');
-        const userElement = document.getElementById('currentUser');
-        if (userElement) {
-            userElement.textContent = user.username || 'User';
-        }
+        // Не отображаем имя пользователя в sidebar, так как sidebar-footer удален
     }
 
     setupEventListeners() {
@@ -82,7 +79,7 @@ class Dashboard {
             });
         }
 
-        // Выход
+        // Кнопка выхода в header
         const logoutBtn = document.getElementById('logoutBtn');
         if (logoutBtn) {
             logoutBtn.addEventListener('click', async (e) => {
@@ -99,6 +96,23 @@ class Dashboard {
             if (e.key === 'F5') {
                 e.preventDefault();
                 this.loadPage(this.currentPage);
+            }
+            // Ctrl+K - фокус на поиске (если будет реализован)
+            if (e.ctrlKey && e.key === 'k') {
+                e.preventDefault();
+                // TODO: Фокус на поиске
+            }
+        });
+
+        // Закрытие sidebar при клике вне его на мобильных устройствах
+        document.addEventListener('click', (e) => {
+            const sidebar = document.getElementById('sidebar');
+            const sidebarToggle = document.getElementById('sidebarToggle');
+
+            if (window.innerWidth < 992) {
+                if (!sidebar.contains(e.target) && !sidebarToggle.contains(e.target)) {
+                    sidebar.classList.remove('show');
+                }
             }
         });
     }
@@ -199,7 +213,7 @@ class Dashboard {
                             <div class="metric-label">Failed Runs</div>
                             <div class="metric-change ${failedCount > 0 ? 'negative' : 'positive'}">
                                 <i class="bi bi-exclamation-triangle"></i>
-                                <span>Requires attention</span>
+                                <span>${failedCount > 0 ? 'Requires attention' : 'All good'}</span>
                             </div>
                         </div>
                     </div>
@@ -225,7 +239,7 @@ class Dashboard {
                             <div class="card-header d-flex justify-content-between align-items-center">
                                 <h5 class="mb-0">Sync Activity (Last 7 Days)</h5>
                                 <div class="btn-group btn-group-sm" role="group">
-                                    <button type="button" class="btn btn-outline-secondary" onclick="dashboard.changeChartView('week')">Week</button>
+                                    <button type="button" class="btn btn-outline-secondary active" onclick="dashboard.changeChartView('week')">Week</button>
                                     <button type="button" class="btn btn-outline-secondary" onclick="dashboard.changeChartView('month')">Month</button>
                                 </div>
                             </div>
@@ -241,7 +255,7 @@ class Dashboard {
                             </div>
                             <div class="card-body">
                                 <canvas id="statusChart"></canvas>
-                                <div class="mt-3">
+                                <div class="mt-3 text-center">
                                     <small class="text-muted">
                                         Total: ${totalRuns} runs in last 24 hours
                                     </small>
@@ -258,7 +272,7 @@ class Dashboard {
                         <div class="card">
                             <div class="card-header d-flex justify-content-between">
                                 <h5 class="mb-0">Active Jobs</h5>
-                                <a href="#" onclick="dashboard.loadPage('jobs')" class="text-decoration-none">View all</a>
+                                <a href="#" onclick="dashboard.loadPage('jobs'); return false;" class="text-decoration-none">View all</a>
                             </div>
                             <div class="card-body">
                                 <div class="table-responsive">
@@ -303,7 +317,7 @@ class Dashboard {
                         <div class="card">
                             <div class="card-header d-flex justify-content-between">
                                 <h5 class="mb-0">Recent Sync Runs</h5>
-                                <a href="#" onclick="dashboard.loadPage('history')" class="text-decoration-none">View all</a>
+                                <a href="#" onclick="dashboard.loadPage('history'); return false;" class="text-decoration-none">View all</a>
                             </div>
                             <div class="card-body">
                                 <div class="table-responsive">
@@ -654,13 +668,22 @@ class Dashboard {
                     <div class="card-body">
                         <div class="row">
                             <div class="col-md-4">
-                                <canvas id="cpuGauge"></canvas>
+                                <div class="text-center">
+                                    <h6>CPU Usage</h6>
+                                    <canvas id="cpuGauge"></canvas>
+                                </div>
                             </div>
                             <div class="col-md-4">
-                                <canvas id="memoryGauge"></canvas>
+                                <div class="text-center">
+                                    <h6>Memory Usage</h6>
+                                    <canvas id="memoryGauge"></canvas>
+                                </div>
                             </div>
                             <div class="col-md-4">
-                                <canvas id="diskGauge"></canvas>
+                                <div class="text-center">
+                                    <h6>Disk Usage</h6>
+                                    <canvas id="diskGauge"></canvas>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -680,6 +703,8 @@ class Dashboard {
 
     loadSettings() {
         const contentArea = document.getElementById('contentArea');
+        const user = JSON.parse(localStorage.getItem('user') || '{}');
+
         contentArea.innerHTML = `
             <h4 class="mb-4">Settings</h4>
             
@@ -770,18 +795,19 @@ class Dashboard {
                         </div>
                         <div class="card-body">
                             <dl class="row">
-                                <dt class="col-sm-4">Username</dt>
-                                <dd class="col-sm-8">${JSON.parse(localStorage.getItem('user') || '{}').username || 'N/A'}</dd>
+                                <dt class="col-sm-5">Username:</dt>
+                                <dd class="col-sm-7">${user.username || 'N/A'}</dd>
                                 
-                                <dt class="col-sm-4">Role</dt>
-                                <dd class="col-sm-8">${JSON.parse(localStorage.getItem('user') || '{}').role || 'N/A'}</dd>
+                                <dt class="col-sm-5">Role:</dt>
+                                <dd class="col-sm-7">
+                                    <span class="badge bg-primary">${user.role || 'N/A'}</span>
+                                </dd>
                                 
-                                <dt class="col-sm-4">Session</dt>
-                                <dd class="col-sm-8">Active</dd>
+                                <dt class="col-sm-5">Session:</dt>
+                                <dd class="col-sm-7">
+                                    <span class="badge bg-success">Active</span>
+                                </dd>
                             </dl>
-                            <button class="btn btn-danger w-100" onclick="dashboard.logout()">
-                                <i class="bi bi-box-arrow-right me-2"></i>Logout
-                            </button>
                         </div>
                     </div>
 
@@ -795,7 +821,7 @@ class Dashboard {
                             <p class="mb-2">Version: 2.0.0</p>
                             <p class="mb-2">Build: ${new Date().toISOString().split('T')[0]}</p>
                             <hr>
-                            <small class="text-muted">© 2025 MobileGW. All rights reserved.</small>
+                            <small class="text-muted">© 2024 MobileGW. All rights reserved.</small>
                         </div>
                     </div>
                 </div>
@@ -928,18 +954,41 @@ class Dashboard {
     }
 
     async triggerJob(jobId) {
+        console.log('=== TRIGGER JOB DEBUG ===');
+        console.log('Job ID:', jobId);
+        console.log('Token exists:', !!localStorage.getItem('jwtToken'));
+
+        const user = JSON.parse(localStorage.getItem('user') || '{}');
+        console.log('User role:', user.role);
+
+        if (!jobId) {
+            this.showToast('Error: Job ID is missing', 'danger');
+            return;
+        }
+
         if (!confirm('Запустить эту задачу сейчас?')) return;
 
         try {
+            console.log('Sending request to:', `/dashboard/trigger/${jobId}`);
             const result = await window.api.triggerJob(jobId);
-            this.showToast(`Задача запущена успешно! Обработано ${result.recordsProcessed || 0} записей.`, 'success');
+            console.log('Response:', result);
 
-            // Обновляем текущую страницу
-            setTimeout(() => {
-                this.loadPage(this.currentPage);
-            }, 2000);
+            this.showToast(
+                `Задача выполнена! Обработано ${result.recordsProcessed || 0} записей.`,
+                'success'
+            );
+
+            setTimeout(() => this.loadPage(this.currentPage), 2000);
         } catch (error) {
-            this.showToast(`Ошибка: ${error.message}`, 'danger');
+            console.error('Full error:', error);
+
+            if (error.message.includes('Forbidden')) {
+                this.showToast('У вас нет прав для запуска задач', 'warning');
+            } else if (error.message.includes('already running')) {
+                this.showToast('Задача уже выполняется', 'warning');
+            } else {
+                this.showToast(`Ошибка: ${error.message}`, 'danger');
+            }
         }
     }
 
@@ -1051,14 +1100,28 @@ class Dashboard {
     }
 
     saveSettings() {
-        // TODO: Сохранить настройки
-        this.showToast('Settings saved successfully', 'success');
-    }
+        const refreshInterval = document.getElementById('refreshInterval').value;
+        const defaultPage = document.getElementById('defaultPage').value;
+        const enableNotifications = document.getElementById('enableNotifications').checked;
 
-    async logout() {
-        if (confirm('Вы уверены, что хотите выйти?')) {
-            await window.api.logout();
+        // Сохраняем в localStorage
+        localStorage.setItem('dashboardSettings', JSON.stringify({
+            refreshInterval,
+            defaultPage,
+            enableNotifications
+        }));
+
+        // Применяем настройки
+        if (refreshInterval === '0') {
+            if (this.refreshInterval) {
+                clearInterval(this.refreshInterval);
+                this.refreshInterval = null;
+            }
+        } else {
+            this.startAutoRefresh(parseInt(refreshInterval));
         }
+
+        this.showToast('Settings saved successfully', 'success');
     }
 
     showToast(message, type = 'info') {
@@ -1115,20 +1178,29 @@ class Dashboard {
         `;
     }
 
-    startAutoRefresh() {
+    startAutoRefresh(interval = null) {
         // Останавливаем предыдущий интервал если есть
         if (this.refreshInterval) {
             clearInterval(this.refreshInterval);
         }
 
-        // Обновление каждые 30 секунд
+        // Получаем интервал из настроек если не передан
+        if (!interval) {
+            const settings = JSON.parse(localStorage.getItem('dashboardSettings') || '{}');
+            interval = parseInt(settings.refreshInterval) || 30000;
+        }
+
+        // Не запускаем если интервал 0 (отключено)
+        if (interval === 0) return;
+
+        // Обновление с заданным интервалом
         this.refreshInterval = setInterval(() => {
             // Обновляем только overview и health страницы
             if (this.currentPage === 'overview' || this.currentPage === 'health') {
                 console.log('Auto-refreshing page:', this.currentPage);
                 this.loadPage(this.currentPage);
             }
-        }, 30000);
+        }, interval);
     }
 
     startClock() {
@@ -1167,8 +1239,10 @@ class Dashboard {
     }
 }
 
-// Инициализация при загрузке страницы
+// Глобальная переменная для dashboard
 let dashboard;
+
+// Инициализация при загрузке страницы
 document.addEventListener('DOMContentLoaded', () => {
     dashboard = new Dashboard();
 });
@@ -1180,5 +1254,5 @@ window.addEventListener('beforeunload', () => {
     }
 });
 
-// Экспортируем для использования в HTML
+// Экспортируем для использования в HTML через onclick
 window.dashboard = dashboard;

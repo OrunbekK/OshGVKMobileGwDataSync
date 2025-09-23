@@ -294,6 +294,9 @@ namespace MobileGwDataSync.API
                     options.AddPolicy("DashboardAdmin", policy =>
                         policy.RequireRole("Admin"));
 
+                    options.AddPolicy("CanTriggerJobs", policy =>
+                        policy.RequireRole("Admin", "Operator"));
+
                     options.AddPolicy("APIKeyRequired", policy =>
                         policy.AddAuthenticationSchemes(Security.APIKeyAuthenticationOptions.DefaultScheme).RequireAuthenticatedUser());
                 });
