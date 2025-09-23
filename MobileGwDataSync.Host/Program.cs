@@ -14,6 +14,7 @@ using MobileGwDataSync.Monitoring.Metrics;
 using Quartz;
 using Serilog;
 using Serilog.Events;
+using StackExchange.Redis;
 
 namespace MobileGwDataSync.Host
 {
@@ -115,6 +116,26 @@ namespace MobileGwDataSync.Host
             // Repositories
             services.AddScoped<ISyncRunRepository, SyncRunRepository>();
             services.AddScoped<ISyncJobRepository, SyncJobRepository>();
+
+            try
+            {
+                var redisConnection = configuration.GetConnectionString("Redis") ?? "localhost:6379";
+                services.AddSingleton<IConnectionMultiplexer>(sp =>
+                {
+                    var configOptions = ConfigurationOptions.Parse(redisConnection);
+                    configOptions.AbortOnConnectFail = false;
+                    return ConnectionMultiplexer.Connect(configOptions);
+                });
+
+                services.AddSingleton<ICommandQueue, RedisCommandQueue>();
+                services.AddHostedService<CommandProcessorService>();
+
+                Log.Information("Redis command queue configured: {Connection}", redisConnection);
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "Redis not configured, manual job triggers will not work");
+            }
 
             // Core services with strategies
             services.AddScoped<SubscribersSyncStrategy>();

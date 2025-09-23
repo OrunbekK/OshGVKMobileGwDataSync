@@ -1,4 +1,5 @@
-﻿using StackExchange.Redis;
+﻿using Microsoft.Extensions.Logging;
+using StackExchange.Redis;
 using System.Text.Json;
 
 namespace MobileGwDataSync.Host.Services
@@ -22,24 +23,32 @@ namespace MobileGwDataSync.Host.Services
 
         public async Task PublishJobTriggerAsync(string jobId, string triggeredBy)
         {
-            var db = _redis.GetDatabase();
-            var command = new JobCommand
+            try
             {
-                Id = Guid.NewGuid(),
-                JobId = jobId,
-                Command = "TriggerNow",
-                TriggeredBy = triggeredBy,
-                Timestamp = DateTime.UtcNow
-            };
+                var db = _redis.GetDatabase();
+                var command = new JobCommand
+                {
+                    Id = Guid.NewGuid(),
+                    JobId = jobId,
+                    Command = "TriggerNow",
+                    TriggeredBy = triggeredBy,
+                    Timestamp = DateTime.UtcNow
+                };
 
-            var json = JsonSerializer.Serialize(command);
-            await db.ListRightPushAsync("job:commands", json);
+                var json = JsonSerializer.Serialize(command);
+                await db.ListRightPushAsync("job:commands", json);
 
-            // Публикуем событие для подписчиков
-            var subscriber = _redis.GetSubscriber();
-            await subscriber.PublishAsync(RedisChannel.Literal("job:trigger"), json);
+                // Исправление предупреждения CS0618
+                var subscriber = _redis.GetSubscriber();
+                await subscriber.PublishAsync(RedisChannel.Literal("job:trigger"), json);
 
-            _logger.LogInformation("Published job trigger command for {JobId}", jobId);
+                _logger.LogInformation("Published job trigger command for {JobId}", jobId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to publish job trigger command");
+                throw;
+            }
         }
 
         public async Task<JobCommand?> WaitForCommandAsync(CancellationToken cancellationToken)
@@ -48,17 +57,25 @@ namespace MobileGwDataSync.Host.Services
 
             while (!cancellationToken.IsCancellationRequested)
             {
-                var value = await db.ListLeftPopAsync("job:commands");
-                if (!value.IsNullOrEmpty && value.HasValue)
+                try
                 {
-                    var json = value.ToString();
-                    if (!string.IsNullOrEmpty(json))
+                    var value = await db.ListLeftPopAsync("job:commands");
+                    if (!value.IsNullOrEmpty && value.HasValue)
                     {
-                        return JsonSerializer.Deserialize<JobCommand>(json);
+                        var json = value.ToString();
+                        if (!string.IsNullOrEmpty(json))
+                        {
+                            return JsonSerializer.Deserialize<JobCommand>(json);
+                        }
                     }
-                }
 
-                await Task.Delay(1000, cancellationToken);
+                    await Task.Delay(1000, cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error reading from command queue");
+                    await Task.Delay(5000, cancellationToken);
+                }
             }
 
             return null;

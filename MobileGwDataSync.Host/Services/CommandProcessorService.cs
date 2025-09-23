@@ -1,27 +1,20 @@
 ﻿using MobileGwDataSync.Core.Interfaces;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
-using Quartz;
-using System.Text.Json;
 
-namespace MobileGwDataSync.Host.Services
+namespace MobileGwDataSync.Host.Services.HostedServices
 {
     public class CommandProcessorService : BackgroundService
     {
         private readonly ICommandQueue _commandQueue;
-        private readonly ISchedulerFactory _schedulerFactory;
+        private readonly IServiceProvider _serviceProvider;
         private readonly ILogger<CommandProcessorService> _logger;
-        private readonly ISyncService _syncService;
 
         public CommandProcessorService(
             ICommandQueue commandQueue,
-            ISchedulerFactory schedulerFactory,
-            ISyncService syncService,
+            IServiceProvider serviceProvider,
             ILogger<CommandProcessorService> logger)
         {
             _commandQueue = commandQueue;
-            _schedulerFactory = schedulerFactory;
-            _syncService = syncService;
+            _serviceProvider = serviceProvider;
             _logger = logger;
         }
 
@@ -42,7 +35,6 @@ namespace MobileGwDataSync.Host.Services
                 }
                 catch (OperationCanceledException)
                 {
-                    // Нормальное завершение при остановке сервиса
                     break;
                 }
                 catch (Exception ex)
@@ -59,41 +51,26 @@ namespace MobileGwDataSync.Host.Services
         {
             try
             {
-                _logger.LogInformation("Processing trigger command for job {JobId} from {TriggeredBy}",
+                _logger.LogInformation("Processing manual trigger for job {JobId} from {TriggeredBy}",
                     command.JobId, command.TriggeredBy);
 
-                // Вариант 1: Через Quartz
-                try
+                // Используем scope для получения scoped сервисов
+                using var scope = _serviceProvider.CreateScope();
+                var syncService = scope.ServiceProvider.GetRequiredService<ISyncService>();
+
+                // Запускаем синхронизацию напрямую через ISyncService
+                var result = await syncService.ExecuteSyncAsync(command.JobId);
+
+                if (result.Success)
                 {
-                    var scheduler = await _schedulerFactory.GetScheduler();
-                    if (scheduler != null)
-                    {
-                        var jobKey = new JobKey(command.JobId);
-
-                        if (await scheduler.CheckExists(jobKey))
-                        {
-                            await scheduler.TriggerJob(jobKey, new JobDataMap
-                            {
-                                ["TriggeredBy"] = command.TriggeredBy,
-                                ["CommandId"] = command.Id.ToString(),
-                                ["TriggerSource"] = "Dashboard"
-                            });
-
-                            _logger.LogInformation("Job {JobId} triggered via Quartz", command.JobId);
-                            return;
-                        }
-                    }
+                    _logger.LogInformation("Manual job {JobId} completed. Records: {Records}",
+                        command.JobId, result.RecordsProcessed);
                 }
-                catch (Exception ex)
+                else
                 {
-                    _logger.LogWarning(ex, "Failed to trigger via Quartz, using direct sync service");
+                    _logger.LogWarning("Manual job {JobId} failed: {Errors}",
+                        command.JobId, string.Join(", ", result.Errors));
                 }
-
-                // Вариант 2: Прямой вызов SyncService
-                var result = await _syncService.ExecuteSyncAsync(command.JobId);
-
-                _logger.LogInformation("Job {JobId} executed directly. Success: {Success}, Records: {Records}",
-                    command.JobId, result.Success, result.RecordsProcessed);
             }
             catch (Exception ex)
             {
