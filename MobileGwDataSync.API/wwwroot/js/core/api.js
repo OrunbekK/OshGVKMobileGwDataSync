@@ -1,4 +1,4 @@
-﻿// api.js - Централизованный API клиент с JWT
+﻿// api.js - С учетом существующего DashboardController
 class ApiClient {
     constructor() {
         this.baseUrl = '';
@@ -26,12 +26,25 @@ class ApiClient {
                 throw new Error('Unauthorized');
             }
 
-            if (!response.ok) {
-                const error = await response.json().catch(() => ({}));
-                throw new Error(error.message || `HTTP ${response.status}`);
+            if (response.status === 204) {
+                return { success: true };
             }
 
-            return await response.json();
+            const contentType = response.headers.get('content-type');
+            if (contentType && contentType.includes('application/json')) {
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.message || data.error || `HTTP ${response.status}`);
+                }
+
+                return data;
+            } else {
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                return await response.text();
+            }
         } catch (error) {
             console.error('API Request failed:', error);
             throw error;
@@ -46,6 +59,7 @@ class ApiClient {
     clearToken() {
         this.token = null;
         localStorage.removeItem('jwtToken');
+        localStorage.removeItem('user');
     }
 
     handleUnauthorized() {
@@ -53,9 +67,9 @@ class ApiClient {
         window.location.href = '/login.html';
     }
 
-    // Auth endpoints
+    // ===== AUTH ENDPOINTS =====
     async login(username, password) {
-        const response = await this.request('/api/v1/auth/login', {
+        const response = await this.request('/api/auth/login', {
             method: 'POST',
             body: JSON.stringify({ username, password })
         });
@@ -70,29 +84,53 @@ class ApiClient {
 
     async logout() {
         try {
-            await this.request('/api/v1/auth/logout', { method: 'POST' });
+            await this.request('/api/auth/logout', { method: 'POST' });
         } finally {
             this.clearToken();
-            localStorage.removeItem('user');
             window.location.href = '/login.html';
         }
     }
 
-    // Dashboard endpoints
-    async getDashboardStats() {
+    async verifyAuth() {
+        return this.request('/api/auth/verify');
+    }
+
+    // ===== DASHBOARD ENDPOINTS (из DashboardController) =====
+    async getDashboardData() {
+        // Использует существующий /dashboard/data endpoint
+        return this.request('/dashboard/data');
+    }
+
+    async getHealthStatus() {
+        // Использует /dashboard/health-status
+        return this.request('/dashboard/health-status');
+    }
+
+    async triggerJob(jobId) {
+        // Использует /dashboard/trigger/{jobId}
+        return this.request(`/dashboard/trigger/${jobId}`, { method: 'POST' });
+    }
+
+    async getRunLogs(runId) {
+        // Использует /dashboard/logs/{runId}
+        return this.request(`/dashboard/logs/${runId}`);
+    }
+
+    // ===== ДОПОЛНИТЕЛЬНЫЕ API ENDPOINTS (из других контроллеров) =====
+
+    // Из MetricsController
+    async getMetrics() {
         return this.request('/api/v1/metrics/performance');
     }
 
+    // Из SyncController  
     async getSyncHistory(limit = 50) {
         return this.request(`/api/v1/sync/history?limit=${limit}`);
     }
 
+    // Из JobsController
     async getJobs() {
         return this.request('/api/v1/jobs');
-    }
-
-    async triggerJob(jobId) {
-        return this.request(`/api/v1/jobs/${jobId}/trigger`, { method: 'POST' });
     }
 
     async updateJob(jobId, data) {
@@ -102,8 +140,32 @@ class ApiClient {
         });
     }
 
+    // Из HealthController
     async getHealth() {
         return this.request('/api/v1/health');
+    }
+
+    // Вспомогательные методы
+    parseJwt(token) {
+        try {
+            const base64Url = token.split('.')[1];
+            const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+            const jsonPayload = decodeURIComponent(atob(base64).split('').map(c => {
+                return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+            }).join(''));
+            return JSON.parse(jsonPayload);
+        } catch (error) {
+            console.error('Failed to parse JWT:', error);
+            return {};
+        }
+    }
+
+    isTokenExpired() {
+        if (!this.token) return true;
+
+        const tokenData = this.parseJwt(this.token);
+        const expiryTime = tokenData.exp * 1000;
+        return Date.now() >= expiryTime;
     }
 }
 
